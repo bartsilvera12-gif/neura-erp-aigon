@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+/* Neura ERP - Paleta SaaS (Stripe/Linear/Vercel) */
+:root {
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --foreground-muted: #475569;
+  --card: #FFFFFF;
+  /* ZENTRA — identidad lateral (turquesa profundo; logo oficial en blanco) */
+  --zentra-sidebar: #0B3A3D;
+  --zentra-sidebar-elevated: #104A4E;
+  --zentra-sidebar-border: rgba(255, 255, 255, 0.08);
+  --zentra-sidebar-hover: rgba(255, 255, 255, 0.06);
+  --zentra-sidebar-active: rgba(125, 207, 210, 0.22);
+  --zentra-sidebar-accent: #7DCFD2;
+  --zentra-login-bg-mid: #0b2f4c;
+  --zentra-login-bg-deep: #051525;
+  --sidebar: var(--zentra-sidebar);
+  --primary: #0EA5E9;
+  --primary-hover: #0284C7;
+  --primary-light: #E0F2FE;
+  --border: #E2E8F0;
+  /* Badges de estado */
+  --badge-success-bg: #DCFCE7;
+  --badge-success-text: #166534;
+  --badge-warning-bg: #FEF9C3;
+  --badge-warning-text: #854D0E;
+  --badge-error-bg: #FEE2E2;
+  --badge-error-text: #991B1B;
+}
+
+.dark {
+  --background: #0F172A;
+  --foreground: #F8FAFC;
+  --foreground-muted: #94A3B8;
+  --card: #1E293B;
+  /* Lateral ERP: misma identidad ZENTRA en modo oscuro */
+  --sidebar: var(--zentra-sidebar);
+  --primary: #38BDF8;
+  --primary-hover: #0EA5E9;
+  --primary-light: #0C4A6E;
+  --border: #334155;
+  --badge-success-bg: #14532D;
+  --badge-success-text: #86EFAC;
+  --badge-warning-bg: #713F12;
+  --badge-warning-text: #FDE047;
+  --badge-error-bg: #7F1D1D;
+  --badge-error-text: #FCA5A5;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-foreground-muted: var(--foreground-muted);
+  --font-sans: var(--font-plus-jakarta), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-plus-jakarta), system-ui, sans-serif;
+}
+
+/**
+ * Impresión cupones físicos (/sorteos/[id]/imprimir-cupones): el AppShell usa h-svh + overflow
+ * oculto en ancestros; en @media print eso suele dejar casi en blanco la hoja salvo cabecera/pie del navegador.
+ * La clase la agrega PhysicalCouponsPrintClient al montar.
+ */
+@media print {
+  html.physical-coupons-print-page,
+  html.physical-coupons-print-page body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  html.physical-coupons-print-page #neura-sidebar,
+  html.physical-coupons-print-page #neura-header {
+    display: none !important;
+  }
+
+  html.physical-coupons-print-page #neura-app-shell {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  html.physical-coupons-print-page #neura-main-column {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  html.physical-coupons-print-page #neura-main-content {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+  }
+
+  html.physical-coupons-print-page .physical-coupons-print-area {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: relative !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+}
+
+/**
+ * Mobile fix — zoom involuntario en iOS Safari.
+ * iOS Safari hace zoom automático cuando el usuario toca un input/textarea/select
+ * con font-size < 16px. Forzamos un mínimo de 16px SOLO en mobile (<768px), sin
+ * tocar la tipografía desktop. Las clases text-xs / text-sm de Tailwind en los
+ * formularios siguen aplicando arriba de 768px (paneles densos del ERP intactos).
+ *
+ * Excluyo type=button/submit/reset/checkbox/radio porque no disparan zoom y a
+ * veces se ajustan tamaño chico a propósito (chips, toggles).
+ */
+@media (max-width: 767px) {
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Fondo pantalla login (solo layout visual) */
+.zentra-login-bg {
+  background:
+    radial-gradient(ellipse 100% 70% at 50% 0%, rgba(56, 189, 248, 0.14), transparent 52%),
+    linear-gradient(168deg, var(--zentra-login-bg-mid) 0%, var(--zentra-sidebar) 42%, var(--zentra-login-bg-deep) 100%);
+}
+
+
+

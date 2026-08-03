@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Preview — Ícono de ayuda en Header</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; background: #F8FAFC; padding: 40px 24px; }
+  .label { font-size: 12px; color: #64748b; margin: 28px 0 8px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+  .frame { border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+</style>
+</head>
+<body>
+
+<h1 style="font-size:20px; margin:0 0 4px; color:#0F172A;">Preview — Ícono de ayuda (?) en el Header</h1>
+<p style="font-size:13px; color:#64748b; margin:0;">A la izquierda de la campana de notificaciones · mismo lenguaje visual (color, padding, hover)</p>
+
+<!-- Estado 1: header normal -->
+<p class="label">Estado normal</p>
+<div class="frame">
+  <header class="z-40 flex h-16 shrink-0 items-center justify-end gap-3 border-b border-slate-200/90 bg-white/95 px-6">
+    <div class="flex items-center gap-2">
+      <!-- NUEVO: ícono de ayuda -->
+      <button type="button" title="Asistente de ayuda" class="rounded-lg p-2 text-[#475569] transition-colors hover:bg-slate-50 hover:text-[#0EA5E9]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+      <!-- Notificaciones -->
+      <button type="button" class="relative rounded-lg p-2 text-[#475569] transition-colors hover:bg-slate-50 hover:text-[#0EA5E9]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0EA5E9] text-[10px] font-bold text-white">0</span>
+      </button>
+      <!-- Avatar -->
+      <div class="relative">
+        <button type="button" class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0A2540] text-white ring-1 ring-sky-400/35">
+            <span class="text-sm font-bold">A</span>
+          </div>
+          <div class="text-left">
+            <p class="max-w-[180px] truncate text-sm font-medium text-[#0F172A]">ALAN AYALA</p>
+            <p class="text-xs text-[#475569]">Admin</p>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+</div>
+
+<!-- Estado 2: hover -->
+<p class="label">Hover sobre el ícono de ayuda</p>
+<div class="frame">
+  <header class="z-40 flex h-16 shrink-0 items-center justify-end gap-3 border-b border-slate-200/90 bg-white/95 px-6">
+    <div class="flex items-center gap-2">
+      <button type="button" class="rounded-lg p-2 bg-slate-50 text-[#0EA5E9]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+      <button type="button" class="relative rounded-lg p-2 text-[#475569]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0EA5E9] text-[10px] font-bold text-white">0</span>
+      </button>
+      <div class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0A2540] text-white ring-1 ring-sky-400/35">
+          <span class="text-sm font-bold">A</span>
+        </div>
+        <div class="text-left">
+          <p class="max-w-[180px] truncate text-sm font-medium text-[#0F172A]">ALAN AYALA</p>
+          <p class="text-xs text-[#475569]">Admin</p>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+    </div>
+  </header>
+</div>
+
+<!-- Estado 3: panel abierto -->
+<p class="label">Click → panel del asistente desplegado bajo el header</p>
+<div class="frame" style="position: relative; min-height: 540px;">
+  <header class="z-40 flex h-16 shrink-0 items-center justify-end gap-3 border-b border-slate-200/90 bg-white/95 px-6">
+    <div class="flex items-center gap-2">
+      <button type="button" class="rounded-lg p-2 bg-sky-50 text-[#0EA5E9]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+      </button>
+      <button type="button" class="relative rounded-lg p-2 text-[#475569]">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0EA5E9] text-[10px] font-bold text-white">0</span>
+      </button>
+      <div class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0A2540] text-white ring-1 ring-sky-400/35">
+          <span class="text-sm font-bold">A</span>
+        </div>
+        <div class="text-left">
+          <p class="max-w-[180px] truncate text-sm font-medium text-[#0F172A]">ALAN AYALA</p>
+          <p class="text-xs text-[#475569]">Admin</p>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+    </div>
+  </header>
+
+  <!-- Panel del asistente -->
+  <div style="position: absolute; right: 16px; top: 72px; width: 380px; height: 460px;" class="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+    <div class="flex items-center justify-between border-b border-slate-100 bg-[#4FAEB2] px-4 py-3 text-white">
+      <div>
+        <p class="text-sm font-semibold">Asistente de ayuda</p>
+        <p class="text-[11px] text-white/85">Te explico cómo usar el sistema</p>
+      </div>
+      <button type="button" class="rounded-md p-1 text-white/85 hover:bg-white/15 hover:text-white">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div class="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+        Preguntame sobre cualquier pantalla o proceso del sistema. Por ejemplo:
+        <ul class="mt-1.5 list-disc pl-4">
+          <li>¿Cómo creo una nota de crédito?</li>
+          <li>¿Por qué no puedo agendar una cita?</li>
+          <li>¿Cómo lanzo una campaña de WhatsApp?</li>
+        </ul>
+        También podés adjuntar una captura de un error.
+      </div>
+    </div>
+    <div class="border-t border-slate-100 p-2.5">
+      <div class="flex items-end gap-1.5">
+        <button class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-50">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><line x1="16" x2="22" y1="5" y2="5"/><line x1="19" x2="19" y1="2" y2="8"/></svg>
+        </button>
+        <textarea rows="1" placeholder="Escribí tu pregunta…" class="max-h-24 min-h-9 flex-1 resize-none rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400"></textarea>
+        <button class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#4FAEB2] text-white">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+        </button>
+      </div>
+      <p class="mt-1 px-1 text-[9px] text-slate-300">El asistente responde según la documentación del producto; puede cometer errores.</p>
+    </div>
+  </div>
+</div>
+
+<p style="font-size:12px; color:#64748b; margin-top:32px;">
+  Notas: el botón usa el mismo padding (<code>p-2</code>), redondeado (<code>rounded-lg</code>), color base (<code>#475569</code>) y hover (<code>bg-slate-50</code> + <code>text-[#0EA5E9]</code>) que la campana, por lo que se ve nativo del header.
+  Se oculta automáticamente si <code>NEXT_PUBLIC_ASSISTANT_ENABLED</code> no está en <code>1</code>.
+</p>
+
+</body>
+</html>

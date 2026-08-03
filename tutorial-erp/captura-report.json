@@ -1,0 +1,125 @@
+{
+  "generatedAt": "2026-06-09T14:24:04.751Z",
+  "report": [
+    {
+      "route": "/login",
+      "ok": false,
+      "reason": "redirect-login"
+    },
+    {
+      "route": "/dashboard",
+      "ok": true,
+      "file": "screenshots\\01-dashboard\\01-dashboard.png"
+    },
+    {
+      "route": "/dashboard/proyectos",
+      "ok": true,
+      "file": "screenshots\\02-proyectos\\01-kanban.png"
+    },
+    {
+      "route": "/dashboard/proyectos/nuevo",
+      "ok": true,
+      "file": "screenshots\\02-proyectos\\02-form-nuevo.png"
+    },
+    {
+      "route": "/dashboard/agenda",
+      "ok": true,
+      "file": "screenshots\\03-agenda\\01-calendario.png"
+    },
+    {
+      "route": "/clientes",
+      "ok": true,
+      "file": "screenshots\\04-clientes\\01-listado.png"
+    },
+    {
+      "route": "/clientes/nuevo",
+      "ok": true,
+      "file": "screenshots\\04-clientes\\02-form-nuevo.png"
+    },
+    {
+      "route": "/gestion-clientes",
+      "ok": true,
+      "file": "screenshots\\04-clientes\\03-gestion.png"
+    },
+    {
+      "route": "/crm",
+      "ok": false,
+      "reason": "no-acceso"
+    },
+    {
+      "route": "/dashboard/conversaciones",
+      "ok": true,
+      "file": "screenshots\\06-conversaciones\\01-inbox.png"
+    },
+    {
+      "route": "/dashboard/monitoreo",
+      "ok": true,
+      "file": "screenshots\\06-conversaciones\\02-monitoreo.png"
+    },
+    {
+      "route": "/inventario",
+      "ok": true,
+      "file": "screenshots\\07-inventario\\01-productos.png"
+    },
+    {
+      "route": "/inventario/movimientos",
+      "ok": true,
+      "file": "screenshots\\07-inventario\\02-movimientos.png"
+    },
+    {
+      "route": "/compras",
+      "ok": true,
+      "file": "screenshots\\08-compras\\01-listado.png"
+    },
+    {
+      "route": "/proveedores",
+      "ok": true,
+      "file": "screenshots\\08-compras\\02-proveedores.png"
+    },
+    {
+      "route": "/ventas",
+      "ok": true,
+      "file": "screenshots\\09-ventas\\01-listado.png"
+    },
+    {
+      "route": "/pagos",
+      "ok": true,
+      "file": "screenshots\\09-ventas\\02-pagos.png"
+    },
+    {
+      "route": "/comisiones",
+      "ok": true,
+      "file": "screenshots\\10-reportes\\01-comisiones.png"
+    },
+    {
+      "route": "/gastos",
+      "ok": true,
+      "file": "screenshots\\10-reportes\\02-gastos.png"
+    },
+    {
+      "route": "/dashboard/campanas",
+      "ok": true,
+      "file": "screenshots\\11-marketing\\01-campanas.png"
+    },
+    {
+      "route": "/usuarios",
+      "ok": true,
+      "file": "screenshots\\12-usuarios\\01-listado.png"
+    },
+    {
+      "route": "/configuracion",
+      "ok": true,
+      "file": "screenshots\\13-configuracion\\01-hub.png"
+    },
+    {
+      "route": "/configuracion/proyectos",
+      "ok": true,
+      "file": "screenshots\\13-configuracion\\02-proyectos.png"
+    },
+    {
+      "route": "/configuracion/preferencias",
+      "ok": true,
+      "file": "screenshots\\13-configuracion\\03-preferencias.png"
+    }
+  ]
+}

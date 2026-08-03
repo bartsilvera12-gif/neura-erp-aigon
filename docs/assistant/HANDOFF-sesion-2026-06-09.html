@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Asistente de Ayuda IA — Traspaso de sesión</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#666; --line:#e2e2e2; --accent:#2563eb; --ok:#15803d; --warn:#b45309; --code:#f4f4f5; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: var(--ink); line-height: 1.55; font-size: 12.5px; margin: 0; }
+  .page { padding: 0 4px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.3px; }
+  h2 { font-size: 16px; margin: 26px 0 8px; padding-bottom: 5px; border-bottom: 2px solid var(--accent); color: #111; }
+  h3 { font-size: 13.5px; margin: 16px 0 6px; color: #222; }
+  .sub { color: var(--muted); font-size: 12px; margin: 0 0 2px; }
+  p { margin: 7px 0; }
+  ul, ol { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px; }
+  pre { background: var(--code); padding: 10px 12px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--line); }
+  pre code { background: none; padding: 0; font-size: 10.5px; line-height: 1.45; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 11.5px; }
+  th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: #f7f7f8; font-weight: 600; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .callout { border-left: 4px solid var(--accent); background: #f5f8ff; padding: 9px 14px; border-radius: 0 6px 6px 0; margin: 12px 0; }
+  .callout.warn { border-color: var(--warn); background: #fff8ef; }
+  .callout.ok { border-color: var(--ok); background: #f1faf3; }
+  .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: #eef2ff; color: var(--accent); }
+  header.doc { border-bottom: 3px solid var(--ink); padding-bottom: 10px; margin-bottom: 4px; }
+  .meta { font-size: 11px; color: var(--muted); }
+  hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
+  .small { font-size: 10.5px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="doc">
+  <span class="tag">TRASPASO DE SESIÓN</span>
+  <h1>Asistente de Ayuda IA — Neura / Zentra ERP</h1>
+  <p class="sub">Resumen completo de la sesión de implementación y activación del MVP (Fase 1)</p>
+  <p class="meta">Fecha: 2026-06-09 · Proyecto: <code>C:\Neura\neura-erp-sistemas-propio</code> · Schema de datos: <code>neura</code> · Rama: <code>main</code></p>
+</header>
+
+<h2>1. Punto de partida</h2>
+<p>Se retomó el proyecto del <strong>asistente de ayuda con Claude</strong> embebido en el ERP. El MVP (Fase 1) ya estaba <strong>construido en código local pero sin desplegar, sin commitear y sin base de datos aplicada</strong>. El objetivo de la sesión fue <strong>activarlo y verificarlo end-to-end en local</strong>.</p>
+<p>Piezas que ya existían en el working tree:</p>
+<table>
+  <tr><th>Pieza</th><th>Archivo</th></tr>
+  <tr><td>Migración BD (tablas + RPC de búsqueda)</td><td><code>supabase/migrations/20260605120000_assistant_module.sql</code></td></tr>
+  <tr><td>Script de ingesta del corpus</td><td><code>scripts/assistant-ingest.ts</code></td></tr>
+  <tr><td>Wrapper para aplicar la migración por schema</td><td><code>scripts/apply-assistant-module.cjs</code></td></tr>
+  <tr><td>Smoke test (valida Claude sin BD)</td><td><code>scripts/assistant-smoke.ts</code></td></tr>
+  <tr><td>Endpoint de chat (SSE streaming)</td><td><code>src/app/api/assistant/chat/route.ts</code></td></tr>
+  <tr><td>Widget flotante</td><td><code>src/components/assistant/AssistantWidget.tsx</code></td></tr>
+  <tr><td>Montaje en AppShell (gated por env)</td><td><code>src/components/AppShell.tsx</code></td></tr>
+</table>
+
+<h2>2. Lo que hicimos, paso a paso</h2>
+
+<h3>Paso 0 — Smoke test de la integración con Claude <span class="ok">✓ OK</span></h3>
+<p>Ejecutamos <code>npx tsx scripts/assistant-smoke.ts</code>. Claude (<code>claude-haiku-4-5</code>) respondió correctamente usando el corpus real (<code>facturas.md</code>), con pasos correctos y cita de fuente. Costo: 1739 tokens in / 338 out. Confirmó que la <code>ANTHROPIC_API_KEY</code> y el modelo funcionan.</p>
+
+<h3>Paso 1 — Generación del SQL (opción manual, sin conectar a la BD)</h3>
+<p>Como no había <code>SUPABASE_DB_URL</code> en <code>.env.local</code>, se eligió generar el SQL y ejecutarlo manualmente en el SQL editor de Supabase. Generamos apuntando al schema <code>neura</code>:</p>
+<pre><code>node scripts/apply-assistant-module.cjs neura --print &gt; assistant-migration.neura.sql
+npx tsx scripts/assistant-ingest.ts --schema=neura --emit-sql=assistant-corpus.neura.sql</code></pre>
+<p>El wrapper reescribe el template (<code>zentra_erp</code> → <code>neura</code>) automáticamente. Resultado: <strong>0 ocurrencias de <code>zentra_erp</code></strong> en los archivos generados.</p>
+
+<h3>Paso 2 — Aplicación de la migración y carga del corpus <span class="ok">✓ OK</span></h3>
+<p>Orden de ejecución en el SQL editor: <strong>1°</strong> <code>assistant-migration.neura.sql</code> (crea las 4 tablas + índices + RLS + RPC), <strong>2°</strong> <code>assistant-corpus.neura.sql</code>. Verificación confirmada: <strong class="ok">15 documentos / 116 chunks</strong>.</p>
+
+<h3>Paso 3 — Fix de permisos (error 42501) <span class="ok">✓ Resuelto</span></h3>
+<div class="callout warn">
+  <strong>Problema detectado:</strong> al probar la conectividad vía PostgREST con el <code>service_role</code>, las tablas devolvían <code>42501: permission denied for table assistant_kb_documents</code>.<br/>
+  <strong>Causa:</strong> el schema <code>neura</code> no tiene <em>default privileges</em> que otorguen permisos automáticos a los roles de PostgREST, así que las tablas nuevas (creadas por el rol <code>postgres</code> desde el SQL editor) quedaron sin <code>GRANT</code>.
+</div>
+<p><strong>Solución:</strong> se agregó una sección de <code>GRANT</code> idempotente a la migración (template) y se ejecutó <code>assistant-grants.neura.sql</code>, que otorga: a <code>service_role</code> acceso completo a las 4 tablas + <code>execute</code> sobre la RPC; a <code>authenticated</code> solo <code>select</code> sobre las 2 tablas del corpus. <strong>No</strong> toca otros schemas ni otras tablas.</p>
+
+<h3>Paso 4 — Fix de recall en la búsqueda <span class="ok">✓ Resuelto</span></h3>
+<div class="callout warn">
+  <strong>Problema detectado:</strong> la RPC <code>assistant_search_kb</code> devolvía <code>[]</code> con preguntas naturales como <em>"como hago una nota de credito"</em>.<br/>
+  <strong>Causa:</strong> <code>websearch_to_tsquery</code> une los términos con <strong>AND</strong>; al exigir que TODAS las palabras estén en el mismo chunk, un verbo ausente del corpus ("hago") vaciaba el resultado.
+</div>
+<p><strong>Solución:</strong> se reescribió la función para matchear con <strong>OR</strong> (recall) pero <strong>rankear más alto los chunks que satisfacen el AND completo</strong> (precisión). Técnica: tomar la tsquery AND, reemplazar <code>&amp;</code> por <code>|</code> y castear de vuelta a <code>tsquery</code>. Se aplicó con <code>assistant-fn-update.neura.sql</code>.</p>
+<p>Verificación posterior (preguntas naturales): <em>"nota de credito"</em> → facturas ✓, <em>"alta de producto"</em> → inventario ✓, <em>"agregar cliente"</em> → ventas/clientes ✓.</p>
+
+<h3>Paso 5 — Configuración de entorno local y arranque <span class="ok">✓ OK</span></h3>
+<p>Se completó <code>.env.local</code> con las 7 variables necesarias y se levantó el dev server: <strong>Next.js 16.1.6 listo en <code>http://localhost:3000</code></strong>.</p>
+
+<h2>3. Estado actual — verificado</h2>
+<table>
+  <tr><th>Capa</th><th>Estado</th><th>Cómo se verificó</th></tr>
+  <tr><td>Tablas <code>assistant_*</code> en <code>neura</code></td><td class="ok">✓ creadas</td><td>HTTP 200 vía PostgREST</td></tr>
+  <tr><td>Grants <code>service_role</code> / <code>authenticated</code></td><td class="ok">✓ aplicados</td><td>resuelto el 42501</td></tr>
+  <tr><td>Corpus cargado</td><td class="ok">✓ 15 docs / 116 chunks</td><td>count en SQL editor</td></tr>
+  <tr><td>RPC <code>assistant_search_kb</code> (con fix de recall)</td><td class="ok">✓ relevante</td><td>3 preguntas naturales devuelven chunks correctos</td></tr>
+  <tr><td>Integración con Claude</td><td class="ok">✓ responde</td><td>smoke test (1739/338 tokens)</td></tr>
+  <tr><td>URL base de la API Supabase</td><td class="ok">✓ validada</td><td><code>https://api.neura.com.py</code></td></tr>
+  <tr><td>Dev server local</td><td class="ok">✓ corriendo</td><td><code>http://localhost:3000</code></td></tr>
+  <tr><td>Prueba en navegador (widget vivo)</td><td class="warn">⏳ pendiente</td><td>requиere login del usuario en el browser</td></tr>
+</table>
+
+<h2>4. Archivos creados / modificados en esta sesión</h2>
+<h3>Modificados (template de migración)</h3>
+<ul>
+  <li><code>supabase/migrations/20260605120000_assistant_module.sql</code> — se le agregaron: <strong>(a)</strong> sección de <code>GRANT</code> idempotente para roles PostgREST; <strong>(b)</strong> reescritura de la RPC <code>assistant_search_kb</code> con OR-recall + boost por AND completo.</li>
+  <li><code>.env.local</code> <span class="muted">(gitignored — NO se commitea)</span> — flags del asistente + credenciales Supabase.</li>
+</ul>
+<h3>Generados (artefactos de trabajo, en la raíz del repo)</h3>
+<ul>
+  <li><code>assistant-migration.neura.sql</code> — migración completa para <code>neura</code> (tablas + grants + RPC mejorada).</li>
+  <li><code>assistant-corpus.neura.sql</code> — corpus (15 docs / 116 chunks), refresh transaccional.</li>
+  <li><code>assistant-grants.neura.sql</code> — solo los GRANT (fix del 42501).</li>
+  <li><code>assistant-fn-update.neura.sql</code> — solo la RPC (fix de recall).</li>
+</ul>
+
+<h2>5. Variables en <code>.env.local</code> (local, gitignored)</h2>
+<table>
+  <tr><th>Variable</th><th>Para qué</th></tr>
+  <tr><td><code>APP_DB_SCHEMA=neura</code></td><td>schema de datos del ERP en esta instancia</td></tr>
+  <tr><td><code>ANTHROPIC_API_KEY</code></td><td>API de Claude (modelo del asistente)</td></tr>
+  <tr><td><code>ASSISTANT_ENABLED=1</code></td><td>habilita el endpoint <code>/api/assistant/chat</code></td></tr>
+  <tr><td><code>NEXT_PUBLIC_ASSISTANT_ENABLED=1</code></td><td>muestra el widget flotante</td></tr>
+  <tr><td><code>NEXT_PUBLIC_SUPABASE_URL=https://api.neura.com.py</code></td><td>URL base de la API (gateway PostgREST/Auth)</td></tr>
+  <tr><td><code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code></td><td>key pública (auth del cliente)</td></tr>
+  <tr><td><code>SUPABASE_SERVICE_ROLE_KEY</code></td><td>key privada (endpoint: retrieval + persistencia)</td></tr>
+</table>
+<div class="callout warn"><strong>Seguridad:</strong> la <code>service_role</code> es de máximo privilegio. <code>.env.local</code> está gitignored y solo vive en la máquina local. En el hosting (producción) estas variables van en el panel del proveedor, nunca en el repo.</div>
+
+<h2>6. Lo que falta para terminar</h2>
+<ol>
+  <li><span class="tag">AHORA</span> <strong>Probar el widget en el navegador</strong>: abrir <code>http://localhost:3000</code>, loguearse, y verificar que el botón flotante aparece abajo a la derecha y responde con cita de fuente.</li>
+  <li><strong>Decidir despliegue a producción</strong> (requiere autorización expresa del propietario — regla del proyecto). Implica:
+    <ul>
+      <li>Cargar en el panel del hosting (Vercel): <code>ANTHROPIC_API_KEY</code>, <code>ASSISTANT_ENABLED=1</code>, <code>NEXT_PUBLIC_ASSISTANT_ENABLED=1</code> (las de Supabase ya deberían existir allí).</li>
+      <li><strong>Commitear el código del MVP</strong> (endpoint, widget, scripts, migración) — pendiente de OK.</li>
+      <li>Deploy y prueba con 1–2 empresas piloto.</li>
+    </ul>
+  </li>
+  <li><strong>Limpieza</strong>: los 4 archivos <code>assistant-*.neura.sql</code> de la raíz son artefactos temporales; decidir si se borran o se archivan (no deberían commitearse a la raíz).</li>
+</ol>
+
+<h2>7. Notas de diseño relevantes</h2>
+<ul>
+  <li><strong>Schema dinámico:</strong> la migración usa <code>zentra_erp</code> como template; los wrappers (<code>apply-assistant-module.cjs</code>, <code>assistant-ingest.ts</code>) lo reescriben al schema real (<code>neura</code>). En runtime, <code>createServiceRoleClient</code> usa <code>db.schema = APP_DB_SCHEMA</code>, así que las llamadas del endpoint van a <code>neura</code> vía PostgREST sin tocar configuración.</li>
+  <li><strong>Doble flag de seguridad:</strong> con los flags apagados el código es inerte (widget no se monta, endpoint responde 404).</li>
+  <li><strong>Aislamiento multi-tenant:</strong> el corpus es global y sin datos de clientes; los módulos habilitados del tenant solo <em>filtran</em> qué documentación se recupera. Conversaciones se guardan con <code>empresa_id</code> en tablas deny-by-default (solo service role).</li>
+  <li><strong>Cuota:</strong> <code>ASSISTANT_DAILY_LIMIT</code> (default 50 mensajes/usuario/día).</li>
+  <li><strong>Retrieval léxico</strong> (tsvector español), sin embeddings en esta fase. Queda como fase futura si el recall léxico se queda corto.</li>
+</ul>
+
+<h2>8. Cómo continuar en la nueva cuenta de Claude</h2>
+<div class="callout ok">
+  <p style="margin-top:0"><strong>Contexto mínimo para retomar:</strong></p>
+  <ul style="margin-bottom:0">
+    <li>El MVP está <strong>funcionando end-to-end en local</strong>; falta solo la prueba visual en el navegador y la decisión de despliegue.</li>
+    <li>Toda la lógica de BD (tablas, grants, corpus, RPC mejorada) <strong>ya está aplicada en la instancia <code>neura</code></strong> de Supabase.</li>
+    <li>Regla del proyecto: <strong>NADA de commit / push / deploy / migraciones sin autorización expresa del propietario.</strong></li>
+    <li>El dev server local se levanta con <code>npm run dev</code> (lee <code>.env.local</code>).</li>
+    <li>Para regenerar el corpus tras editar los <code>.md</code>: <code>npx tsx scripts/assistant-ingest.ts --schema=neura</code> (requiere <code>SUPABASE_DB_URL</code>) o <code>--emit-sql</code> para el editor.</li>
+  </ul>
+</div>
+
+<hr/>
+<p class="small muted">Documento de traspaso generado automáticamente · Sesión del 2026-06-09 · El detalle funcional de cada módulo y el diseño de arquitectura están en <code>docs/assistant/</code> (architecture.md, recommendations.md, system-map.md, IMPLEMENTATION.md y los 13 docs de módulos).</p>
+
+</div>
+</body>
+</html>

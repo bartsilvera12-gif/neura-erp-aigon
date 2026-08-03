@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/chat-tags-daily?apply=true&max_batch=500",
+      "schedule": "1 3 * * *"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+# Agrega ffmpeg al entorno de build/runtime (Nixpacks/Coolify) para remuxear
+# notas de voz webm/opus -> ogg/opus antes de enviarlas por WhatsApp.
+# El token '...' preserva los paquetes autodetectados por Nixpacks (Node, etc.);
+# solo AGREGA ffmpeg, no reemplaza el setup de Node.
+[phases.setup]
+nixPkgs = ['...', 'ffmpeg']
