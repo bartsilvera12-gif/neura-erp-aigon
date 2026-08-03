@@ -105,6 +105,7 @@ const HIDDEN_MENU_KEYS: ReadonlySet<string> = new Set([
   "marketing",
   "marketing_ops",
   "sorteos",
+  "etiquetas",
 ]);
 
 const MENU_STRUCTURE_ALL: MenuItem[] = [
