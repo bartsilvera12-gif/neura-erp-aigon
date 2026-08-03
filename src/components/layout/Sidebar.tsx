@@ -88,7 +88,27 @@ function adminEmpresasMatchesQuery(queryRaw: string): boolean {
   return label.includes(q) || normalizeMenuSearch("empresas").includes(q);
 }
 
-const MENU_STRUCTURE: MenuItem[] = [
+const HIDDEN_MENU_KEYS: ReadonlySet<string> = new Set([
+  "clientes",
+  "crm",
+  "gestion-clientes",
+  "ventas",
+  "comisiones",
+  "planes",
+  "agenda",
+  "pagos",
+  "gastos",
+  "notas_credito",
+  "cobranzas",
+  "inventario",
+  "compras",
+  "proyectos",
+  "marketing",
+  "marketing_ops",
+  "sorteos",
+]);
+
+const MENU_STRUCTURE_ALL: MenuItem[] = [
   { key: "dashboard", slug: "dashboard", label: "Dashboard", href: "/", icon: LayoutDashboard },
   { key: "gerencia", slug: "gerencia", label: "Gerencia", href: "/dashboard/gerencia", icon: TrendingUp },
   { key: "reportes", slug: "reportes", label: "Reportes", href: "/reportes", icon: BarChart3 },
@@ -204,6 +224,10 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: Tags,
   },
 ];
+
+const MENU_STRUCTURE: MenuItem[] = MENU_STRUCTURE_ALL.filter(
+  (item) => !HIDDEN_MENU_KEYS.has(item.key)
+);
 
 /**
  * Agrupamiento VISUAL del menú por familias. Solo reordena el render: no cambia
