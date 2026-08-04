@@ -640,6 +640,14 @@ export function ConversacionesClient({
         limit: listLimitRef.current,
         q: qNow ? qNow : null,
       };
+      // Historial: no traer nada hasta que el usuario busque por nombre/número.
+      // Evita cargar todo el archivo de conversaciones en un tenant grande.
+      if (mode === "historial" && qNow.length === 0) {
+        setConversations([]);
+        setListError(null);
+        setLoadingList(false);
+        return;
+      }
       const previousCount = conversationsRef.current.length;
       if (silent) {
         chatListUiLog("refetch-start", {
@@ -2819,7 +2827,16 @@ export function ConversacionesClient({
               <div className="p-4 text-xs text-slate-400 text-center animate-pulse">Cargando…</div>
             ) : conversations.length === 0 ? (
               <div className="p-4 text-xs text-slate-500 text-center space-y-1">
-                <p>No hay conversaciones aún</p>
+                {mode === "historial" && debouncedQ.trim().length === 0 ? (
+                  <>
+                    <p className="font-medium text-slate-600">Buscá para ver el historial</p>
+                    <p className="text-[11px] text-slate-400">
+                      Escribí un nombre o número para traer las conversaciones (incluye chats sin tipificar).
+                    </p>
+                  </>
+                ) : (
+                  <p>No hay conversaciones aún</p>
+                )}
               </div>
             ) : visibleConversations.length === 0 ? (
               <div className="p-4 text-xs text-slate-500 text-center space-y-1">

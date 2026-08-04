@@ -445,10 +445,10 @@ async function fetchChatConversationsUnsafe(
 
     // Inbox/Bot: SOLO abiertas/pendientes, siempre (también al buscar). Las finalizadas no salen
     // en el inbox ni buscando (se ven en el módulo Finalizadas). Inbox vs Bot se resuelve en memoria.
+    // Historial: sin filtro de status — incluye finalizadas Y chats sin tipificar (open/pending),
+    // porque la vista es "buscar en todo el archivo desde el primer mensaje".
     if (vista === "inbox" || vista === "bot") {
       qb = qb.in("status", ["open", "pending"]);
-    } else if (vista === "historial") {
-      qb = qb.eq("status", "closed");
     }
 
     const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id, {
