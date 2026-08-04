@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  assignConversationToAgent,
   fetchMonitoreoPageData,
+  fetchTransferTargetAgents,
   type MonitoringDashboard,
   type MonitoringPendingReplyAgentGroup,
   type MonitoringUnassignedRow,
@@ -169,6 +171,60 @@ export default function MonitoreoPage() {
   useEffect(() => {
     void load(leadDate);
   }, [load, leadDate]);
+
+  // Modal de transferencia sobre una fila de "chats sin asignar" (no navega al inbox).
+  const [transferTarget, setTransferTarget] = useState<MonitoringUnassignedRow | null>(null);
+  const [transferAgents, setTransferAgents] = useState<SupervisorAgentLoadRow[]>([]);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [transferSearch, setTransferSearch] = useState("");
+
+  const openTransfer = useCallback((row: MonitoringUnassignedRow) => {
+    setTransferTarget(row);
+    setTransferAgents([]);
+    setTransferError(null);
+    setTransferSearch("");
+    setTransferLoading(true);
+    void fetchTransferTargetAgents()
+      .then((rows) => setTransferAgents(rows))
+      .catch((e) => setTransferError(e instanceof Error ? e.message : "Error al cargar agentes"))
+      .finally(() => setTransferLoading(false));
+  }, []);
+
+  const closeTransfer = useCallback(() => {
+    if (transferBusy) return;
+    setTransferTarget(null);
+    setTransferAgents([]);
+    setTransferError(null);
+    setTransferSearch("");
+  }, [transferBusy]);
+
+  const filteredTransferAgents = useMemo(() => {
+    const q = transferSearch.trim().toLowerCase();
+    if (!q) return transferAgents;
+    return transferAgents.filter((a) => (a.nombre ?? "").toLowerCase().includes(q));
+  }, [transferAgents, transferSearch]);
+
+  const doAssignAgent = useCallback(
+    async (agentId: string) => {
+      if (!transferTarget) return;
+      setTransferBusy(true);
+      setTransferError(null);
+      try {
+        await assignConversationToAgent(transferTarget.id, agentId);
+        setTransferTarget(null);
+        setTransferAgents([]);
+        setTransferSearch("");
+        await load(leadDate);
+      } catch (e) {
+        setTransferError(e instanceof Error ? e.message : "No se pudo asignar");
+      } finally {
+        setTransferBusy(false);
+      }
+    },
+    [transferTarget, load, leadDate]
+  );
 
   // Popup de lectura de una conversación (sin salir del monitoreo, sin abrir pestañas).
   const [chatModal, setChatModal] = useState<{ id: string; name: string; phone: string | null } | null>(null);
@@ -480,14 +536,15 @@ export default function MonitoreoPage() {
                               <Eye className="h-3.5 w-3.5" aria-hidden />
                               <span className="sr-only">Ver en inbox</span>
                             </Link>
-                            <Link
-                              href={buildMonitoreoInboxHref(r, { transferir: true })}
+                            <button
+                              type="button"
+                              onClick={() => openTransfer(r)}
                               title="Transferir…"
                               className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:bg-[#4FAEB2]/8 hover:text-[#3F8E91]"
                             >
                               <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden />
                               <span className="sr-only">Transferir conversación</span>
-                            </Link>
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -967,6 +1024,97 @@ export default function MonitoreoPage() {
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {transferTarget ? (
+        <div
+          className="fixed inset-0 z-[115] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={closeTransfer}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="monitoreo-transfer-title"
+            className="w-full max-w-lg max-h-[min(92vh,720px)] overflow-hidden flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 shrink-0">
+              <div className="min-w-0">
+                <h2 id="monitoreo-transfer-title" className="text-lg font-semibold text-slate-900">
+                  Transferir conversación
+                </h2>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {transferTarget.contact_name?.trim() || transferTarget.contact_phone || "Contacto sin nombre"}
+                  {transferTarget.contact_phone ? ` · ${transferTarget.contact_phone}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={transferBusy}
+                onClick={closeTransfer}
+                aria-label="Cerrar"
+                className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4 overflow-y-auto overscroll-contain flex-1 min-h-0">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                  Agentes disponibles
+                </label>
+                <input
+                  type="search"
+                  value={transferSearch}
+                  onChange={(e) => setTransferSearch(e.target.value)}
+                  placeholder="Buscar"
+                  disabled={transferBusy}
+                  className="w-full max-w-[14rem] border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-[#4FAEB2]/20 focus:border-[#4FAEB2] disabled:opacity-50"
+                  aria-label="Buscar agente"
+                />
+              </div>
+
+              {transferLoading ? (
+                <p className="text-sm text-slate-500 py-6 text-center">Cargando agentes…</p>
+              ) : filteredTransferAgents.length === 0 ? (
+                <p className="text-sm text-slate-500 py-6 text-center">
+                  {transferAgents.length === 0
+                    ? "No hay agentes disponibles con tu alcance."
+                    : "No hay agentes que coincidan con la búsqueda."}
+                </p>
+              ) : (
+                <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 max-h-[min(48vh,360px)] overflow-y-auto overscroll-contain bg-slate-50/40">
+                  {filteredTransferAgents.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      disabled={transferBusy}
+                      onClick={() => void doAssignAgent(a.id)}
+                      className="w-full text-left px-4 py-3 transition-colors hover:bg-white disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-semibold text-slate-900 text-sm leading-snug">{a.nombre}</span>
+                        {a.queue_nombre ? (
+                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            {a.queue_nombre}
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {transferError ? (
+                <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {transferError}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
