@@ -91,7 +91,9 @@ function adminEmpresasMatchesQuery(queryRaw: string): boolean {
 const HIDDEN_MENU_KEYS: ReadonlySet<string> = new Set([
   "dashboard",
   "gerencia",
+  "clientes",
   "crm",
+  "gestion-clientes",
   "ventas",
   "comisiones",
   "planes",
@@ -99,6 +101,8 @@ const HIDDEN_MENU_KEYS: ReadonlySet<string> = new Set([
   "pagos",
   "gastos",
   "notas_credito",
+  "reportes",
+  "cobranzas",
   "inventario",
   "compras",
   "proyectos",
