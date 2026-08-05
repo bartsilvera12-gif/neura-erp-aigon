@@ -444,7 +444,12 @@ function MessageBubble({ message }: { message: MobileChatMessage }) {
         ) : isVideo && mediaUrl ? (
           <video src={mediaUrl} controls className="max-h-[60vh] w-full rounded-xl" />
         ) : isAudio && mediaUrl ? (
-          <audio src={mediaUrl} controls className="w-full" />
+          <audio
+            src={mediaUrl}
+            controls
+            preload="metadata"
+            className="block w-[240px] max-w-full sm:w-[280px]"
+          />
         ) : isDocument && mediaUrl ? (
           <a
             href={mediaUrl}
