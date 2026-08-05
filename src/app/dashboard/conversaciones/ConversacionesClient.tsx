@@ -3243,25 +3243,15 @@ export function ConversacionesClient({
                             </>
                           ) : null}
 
-                          {selected.contact.cliente_id || selected.contact.crm_prospecto_id ? (
+                          {selected.contact.cliente_id ? (
                             <>
                               <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-slate-200" />
-                              {selected.contact.cliente_id ? (
-                                <Link
-                                  href={`/clientes/${selected.contact.cliente_id}`}
-                                  className="inline-flex items-center gap-1 rounded-full border border-[#4FAEB2]/30 bg-[#4FAEB2]/8 px-2 py-0.5 text-[10px] font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/12"
-                                >
-                                  Cliente →
-                                </Link>
-                              ) : null}
-                              {selected.contact.crm_prospecto_id ? (
-                                <Link
-                                  href={`/crm/${selected.contact.crm_prospecto_id}`}
-                                  className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 transition-colors hover:bg-violet-100"
-                                >
-                                  CRM →
-                                </Link>
-                              ) : null}
+                              <Link
+                                href={`/clientes/${selected.contact.cliente_id}`}
+                                className="inline-flex items-center gap-1 rounded-full border border-[#4FAEB2]/30 bg-[#4FAEB2]/8 px-2 py-0.5 text-[10px] font-semibold text-[#3F8E91] transition-colors hover:bg-[#4FAEB2]/12"
+                              >
+                                Cliente →
+                              </Link>
                             </>
                           ) : null}
                           {selectedAttribution?.source_url ? (
