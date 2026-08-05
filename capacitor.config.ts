@@ -19,8 +19,10 @@ const config = {
   // webDir es requerido por Capacitor; con server.url (remoto) casi no se usa.
   webDir: "public",
   server: {
-    // La app abre directo en Chats (evita el Dashboard que aún no tiene datos).
-    url: "https://aigon.neura.com.py/dashboard/conversaciones",
+    // La app abre directo en Chats con vista minimal (sin header, sidebar, bottom nav).
+    // El flag `?apkView=1` lo detecta useApkView y persiste en sessionStorage
+    // para que futuras navegaciones dentro de la WebView también queden sin chrome.
+    url: "https://aigon.neura.com.py/dashboard/conversaciones?apkView=1",
     cleartext: false,
     allowNavigation: ["aigon.neura.com.py", "*.neura.com.py"],
   },

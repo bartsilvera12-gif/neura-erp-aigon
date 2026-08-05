@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import BottomNav from "./BottomNav";
 import MobileHeader from "./MobileHeader";
 import MobileMenu from "./MobileMenu";
+import { useApkView } from "@/shared/hooks/useApkView";
 
 const STANDALONE_ROUTES = ["/login"];
 
@@ -25,9 +26,12 @@ const STANDALONE_ROUTES = ["/login"];
  */
 export default function MobileAppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const apkView = useApkView();
   // /m/* = app móvil del asesor (Capacitor/APK): pantalla completa, sin header/bottom-nav del ERP.
+  // apkView (query ?apkView=1 + sessionStorage) = APK Aigon: solo mostramos el contenido.
   const isStandalone =
-    !!pathname && (STANDALONE_ROUTES.includes(pathname) || pathname.startsWith("/m/"));
+    apkView ||
+    (!!pathname && (STANDALONE_ROUTES.includes(pathname) || pathname.startsWith("/m/")));
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Cerrar el menú al cambiar de ruta.
@@ -36,6 +40,18 @@ export default function MobileAppShell({ children }: { children: React.ReactNode
   }, [pathname]);
 
   if (isStandalone) {
+    if (apkView) {
+      return (
+        <div
+          className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]"
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
+        >
+          <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+            {children}
+          </main>
+        </div>
+      );
+    }
     return <>{children}</>;
   }
 

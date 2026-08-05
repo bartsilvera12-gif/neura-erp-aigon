@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import Sidebar from "./layout/Sidebar";
 import Header from "./layout/Header";
 import AgentPresenceHeartbeat from "./AgentPresenceHeartbeat";
+import { useApkView } from "@/shared/hooks/useApkView";
 
 const STANDALONE_ROUTES = ["/login"];
 
@@ -21,9 +22,12 @@ const AssistantWidget = dynamic(() => import("./assistant/AssistantWidget"), { s
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const apkView = useApkView();
   // /m/* = app móvil del asesor (Capacitor/APK): pantalla completa, sin sidebar/header del ERP.
+  // apkView (query ?apkView=1 + sessionStorage) = APK Aigon: solo el contenido, sin chrome.
   const isStandalone =
-    !!pathname && (STANDALONE_ROUTES.includes(pathname) || pathname.startsWith("/m/"));
+    apkView ||
+    (!!pathname && (STANDALONE_ROUTES.includes(pathname) || pathname.startsWith("/m/")));
 
   /** Sidebar mobile: cerrado por defecto. En desktop (>=md) este estado no aplica:
    *  el sidebar siempre está visible en su flujo normal. */
@@ -35,6 +39,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   if (isStandalone) {
+    if (apkView) {
+      return (
+        <div
+          className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]"
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
+        >
+          <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+            {children}
+          </main>
+        </div>
+      );
+    }
     return <>{children}</>;
   }
 
