@@ -2,7 +2,13 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, Search, Send } from "lucide-react";
+import { ArrowLeft, FileText, MessageCircle, Search, Send } from "lucide-react";
+import {
+  attachmentCaptionForDisplay,
+  getErpAttachmentPublicUrl,
+  getWhatsAppMediaUrlFromRawPayload,
+  type RawPayload,
+} from "@/lib/chat/message-erp-display";
 import {
   sendMobileMessage,
   useMobileInbox,
@@ -275,32 +281,79 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
 function MessageBubble({ message }: { message: MobileChatMessage }) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
-  const isText = message.message_type === "text" || !message.message_type;
-  const content = message.content ?? "";
+  const type = message.message_type || "text";
+  const rawPayload = (message.raw_payload ?? null) as RawPayload;
+  const mediaUrl =
+    getErpAttachmentPublicUrl(rawPayload) ?? getWhatsAppMediaUrlFromRawPayload(rawPayload);
+  const caption = attachmentCaptionForDisplay(message.content);
+  const isImageLike = type === "image" || type === "sticker";
+  const isVideo = type === "video";
+  const isAudio = type === "audio";
+  const isDocument = type === "document";
+  const isText = type === "text";
+  const isSticker = type === "sticker";
 
   return (
     <li className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
-          fromMe
-            ? "rounded-br-sm bg-[#0EA5E9] text-white"
-            : "rounded-bl-sm bg-white text-slate-800"
-        }`}
+        className={`max-w-[80%] overflow-hidden rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
+          isSticker
+            ? "bg-transparent shadow-none"
+            : fromMe
+              ? "rounded-br-sm bg-[#0EA5E9] text-white"
+              : "rounded-bl-sm bg-white text-slate-800"
+        } ${isSticker ? "" : "px-3 py-2"}`}
       >
-        {isText ? (
-          <p className="whitespace-pre-wrap break-words">{content}</p>
+        {isImageLike && mediaUrl ? (
+          <img
+            src={mediaUrl}
+            alt={isSticker ? "sticker" : "imagen"}
+            className={
+              isSticker
+                ? "h-32 w-32 object-contain"
+                : "max-h-[60vh] w-full rounded-xl object-cover"
+            }
+            loading="lazy"
+          />
+        ) : isVideo && mediaUrl ? (
+          <video src={mediaUrl} controls className="max-h-[60vh] w-full rounded-xl" />
+        ) : isAudio && mediaUrl ? (
+          <audio src={mediaUrl} controls className="w-full" />
+        ) : isDocument && mediaUrl ? (
+          <a
+            href={mediaUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex items-center gap-2 rounded-xl px-2 py-1 ${
+              fromMe ? "text-white" : "text-slate-800"
+            }`}
+          >
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate underline">Ver documento</span>
+          </a>
+        ) : isText ? (
+          <p className="whitespace-pre-wrap break-words">{message.content ?? ""}</p>
         ) : (
           <p className="italic opacity-80">
-            [{message.message_type}] {content || "Mensaje no soportado en mobile"}
+            [{type}] {message.content ?? "Mensaje no soportado"}
           </p>
         )}
-        <p
-          className={`mt-0.5 text-right text-[10px] tabular-nums ${
-            fromMe ? "text-white/70" : "text-slate-400"
-          }`}
-        >
-          {ts}
-        </p>
+        {caption && !isText ? (
+          <p className="mt-1 whitespace-pre-wrap break-words px-1 text-xs opacity-90">
+            {caption}
+          </p>
+        ) : null}
+        {!isSticker ? (
+          <p
+            className={`mt-0.5 text-right text-[10px] tabular-nums ${
+              fromMe ? "text-white/70" : "text-slate-400"
+            }`}
+          >
+            {ts}
+          </p>
+        ) : (
+          <p className="mt-0.5 pl-1 text-[10px] tabular-nums text-slate-400">{ts}</p>
+        )}
       </div>
     </li>
   );
