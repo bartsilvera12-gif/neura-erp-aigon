@@ -72,14 +72,14 @@ export async function GET(request: NextRequest) {
       contactIds.length > 0
         ? supabase
             .from("chat_contacts")
-            .select("id, nombre, telefono, raw_telefono")
+            .select("id, name, phone_number")
             .eq("empresa_id", empresaId)
             .in("id", contactIds)
         : Promise.resolve({ data: [], error: null } as { data: unknown[]; error: null }),
       channelIds.length > 0
         ? supabase
             .from("chat_channels")
-            .select("id, name, provider")
+            .select("id, nombre, provider")
             .eq("empresa_id", empresaId)
             .in("id", channelIds)
         : Promise.resolve({ data: [], error: null } as { data: unknown[]; error: null }),
@@ -88,23 +88,22 @@ export async function GET(request: NextRequest) {
     const contactById = new Map<string, { nombre: string | null; telefono: string | null }>();
     for (const c of (contactsRes.data ?? []) as Array<{
       id: string;
-      nombre: string | null;
-      telefono: string | null;
-      raw_telefono: string | null;
+      name: string | null;
+      phone_number: string | null;
     }>) {
       contactById.set(c.id, {
-        nombre: c.nombre ?? null,
-        telefono: c.telefono ?? c.raw_telefono ?? null,
+        nombre: c.name ?? null,
+        telefono: c.phone_number ?? null,
       });
     }
 
     const channelById = new Map<string, { name: string | null; provider: string | null }>();
     for (const c of (channelsRes.data ?? []) as Array<{
       id: string;
-      name: string | null;
+      nombre: string | null;
       provider: string | null;
     }>) {
-      channelById.set(c.id, { name: c.name ?? null, provider: c.provider ?? null });
+      channelById.set(c.id, { name: c.nombre ?? null, provider: c.provider ?? null });
     }
 
     const conversations = rows.map((r) => {
