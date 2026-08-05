@@ -40,7 +40,10 @@ export default function MobileAppShell({ children }: { children: React.ReactNode
   }
 
   return (
-    <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]">
+    <div
+      className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
+    >
       <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
 
       <MobileHeader onOpenMenu={() => setMenuOpen(true)} />

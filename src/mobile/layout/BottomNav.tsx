@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, MessageCircle, ShoppingCart, Users, Menu } from "lucide-react";
+import { MessageCircle, ShoppingCart, Users, Menu } from "lucide-react";
 
 /**
  * Navegación inferior fija para la UI mobile. 5 secciones primarias + "Más" que abre
@@ -24,7 +24,6 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Inicio", icon: LayoutDashboard },
   {
     href: "/dashboard/conversaciones",
     label: "Chats",

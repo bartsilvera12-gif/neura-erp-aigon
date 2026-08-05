@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import AppShell from "../components/AppShell";
 import MobileAppShell from "../mobile/layout/MobileAppShell";
@@ -22,6 +22,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Aigon ERP",
   description: "Sistema de gestión Aigon ERP",
+};
+
+/** viewportFit: 'cover' habilita `env(safe-area-inset-*)` en Android/Capacitor;
+ *  sin esto el WebView pisa la barra de estado (hora, batería). */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
