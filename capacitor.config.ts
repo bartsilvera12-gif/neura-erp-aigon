@@ -20,9 +20,9 @@ const config = {
   webDir: "public",
   server: {
     // La app abre directamente la vista del asesor en el ERP deployado.
-    url: "https://sistemas.neura.com.py/m/asesor",
+    url: "https://aigon.neura.com.py/m/asesor",
     cleartext: false,
-    allowNavigation: ["sistemas.neura.com.py", "*.neura.com.py", "api.neura.com.py"],
+    allowNavigation: ["aigon.neura.com.py", "*.neura.com.py"],
   },
   plugins: {
     PushNotifications: {
