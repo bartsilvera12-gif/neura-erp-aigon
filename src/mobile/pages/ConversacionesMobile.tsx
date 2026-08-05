@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, FileText, MessageCircle, Search, Send } from "lucide-react";
+import { ArrowLeft, FileText, Mic, MessageCircle, Search, Send, Square } from "lucide-react";
 import {
   attachmentCaptionForDisplay,
   getErpAttachmentPublicUrl,
@@ -10,6 +10,7 @@ import {
   type RawPayload,
 } from "@/lib/chat/message-erp-display";
 import {
+  sendMobileMediaFile,
   sendMobileMessage,
   useMobileInbox,
   useMobileMessages,
@@ -168,7 +169,12 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordingSince, setRecordingSince] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
 
   // Auto-scroll al fondo cuando llegan mensajes nuevos.
   useEffect(() => {
@@ -190,6 +196,104 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     }
     setSending(false);
   }, [text, sending, conversationId, mutate]);
+
+  /** Envía el blob grabado por el MediaRecorder a /api/chat/send-media como audio. */
+  const uploadVoiceBlob = useCallback(
+    async (blob: Blob) => {
+      if (blob.size < 300) return; // recortes accidentales de <300 bytes
+      setSending(true);
+      setError(null);
+      const ext = blob.type.includes("ogg") ? "ogg" : "webm";
+      const file = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
+      const res = await sendMobileMediaFile({ conversationId, file });
+      if (!res.ok) {
+        setError(res.error ?? "No se pudo enviar el audio.");
+      } else {
+        await mutate();
+      }
+      setSending(false);
+    },
+    [conversationId, mutate]
+  );
+
+  const toggleRecord = useCallback(async () => {
+    if (sending) return;
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === "recording") {
+      rec.stop();
+      return;
+    }
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      recordChunksRef.current = [];
+      const mime =
+        typeof MediaRecorder !== "undefined" &&
+        MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
+            ? "audio/webm"
+            : "";
+      const mr = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      mr.ondataavailable = (ev) => {
+        if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        mediaRecorderRef.current = null;
+        streamRef.current = null;
+        const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "audio/webm" });
+        recordChunksRef.current = [];
+        setRecording(false);
+        setRecordingSince(null);
+        void uploadVoiceBlob(blob);
+      };
+      setRecording(true);
+      setRecordingSince(Date.now());
+      mr.start(400);
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message
+          ? `No se pudo acceder al micrófono: ${e.message}`
+          : "No se pudo acceder al micrófono. Otorgá el permiso en la configuración del sistema."
+      );
+      setRecording(false);
+      setRecordingSince(null);
+    }
+  }, [sending, uploadVoiceBlob]);
+
+  /** Al desmontar (cambio de chat, cierre): detener grabación y liberar micrófono. */
+  useEffect(() => {
+    return () => {
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {
+        /* noop */
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      mediaRecorderRef.current = null;
+      streamRef.current = null;
+    };
+  }, [conversationId]);
+
+  /** Contador visible mientras se graba (mm:ss). */
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!recording) return;
+    const id = window.setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [recording]);
+  const recordingLabel = (() => {
+    if (!recording || recordingSince == null) return "";
+    const s = Math.floor((Date.now() - recordingSince) / 1000);
+    const mm = Math.floor(s / 60).toString().padStart(2, "0");
+    const ss = (s % 60).toString().padStart(2, "0");
+    return `${mm}:${ss}`;
+  })();
 
   const nombre = conv?.contact_nombre?.trim() || conv?.contact_telefono?.trim() || "Conversación";
 
@@ -249,6 +353,13 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         className="shrink-0 border-t border-slate-200 bg-white px-2 py-2"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
       >
+        {recording ? (
+          <div className="mb-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+            <span>Grabando · {recordingLabel}</span>
+            <span className="ml-auto text-red-500">Tocá el cuadrado para enviar</span>
+          </div>
+        ) : null}
         <div className="flex items-end gap-2">
           <textarea
             value={text}
@@ -260,18 +371,33 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
               }
             }}
             rows={1}
-            placeholder="Escribí un mensaje…"
-            className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-[#0EA5E9]/40 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30"
+            placeholder={recording ? "Grabando nota de voz…" : "Escribí un mensaje…"}
+            disabled={recording}
+            className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-[#0EA5E9]/40 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 disabled:bg-slate-50"
           />
-          <button
-            type="button"
-            onClick={() => void send()}
-            disabled={sending || !text.trim()}
-            aria-label="Enviar"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0EA5E9] text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 active:bg-[#0284C7]"
-          >
-            <Send className="h-4 w-4" />
-          </button>
+          {text.trim().length > 0 && !recording ? (
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={sending}
+              aria-label="Enviar"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0EA5E9] text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 active:bg-[#0284C7]"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void toggleRecord()}
+              disabled={sending}
+              aria-label={recording ? "Detener grabación y enviar" : "Grabar nota de voz"}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                recording ? "bg-red-500 active:bg-red-600" : "bg-[#0EA5E9] active:bg-[#0284C7]"
+              }`}
+            >
+              {recording ? <Square className="h-4 w-4" /> : <Mic className="h-5 w-5" />}
+            </button>
+          )}
         </div>
       </div>
     </div>

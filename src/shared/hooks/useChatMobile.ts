@@ -116,3 +116,30 @@ export async function sendMobileMessage(opts: {
     return { ok: false, error: e instanceof Error ? e.message : "Error de red" };
   }
 }
+
+/** Sube un archivo (audio, imagen, doc…) a /api/chat/send-media. Mismo endpoint que la desktop. */
+export async function sendMobileMediaFile(opts: {
+  conversationId: string;
+  file: File;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const fd = new FormData();
+    fd.set("conversation_id", opts.conversationId);
+    fd.set("file", opts.file);
+    const res = await fetchWithSupabaseSession("/api/chat/send-media", {
+      method: "POST",
+      body: fd,
+      credentials: "same-origin",
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) {
+      return {
+        ok: false,
+        error: typeof json.error === "string" ? json.error : `Error ${res.status}`,
+      };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red" };
+  }
+}
