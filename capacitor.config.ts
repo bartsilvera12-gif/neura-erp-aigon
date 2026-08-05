@@ -19,8 +19,8 @@ const config = {
   // webDir es requerido por Capacitor; con server.url (remoto) casi no se usa.
   webDir: "public",
   server: {
-    // La app abre directamente la vista del asesor en el ERP deployado.
-    url: "https://aigon.neura.com.py/m/asesor",
+    // La app abre el ERP completo (root) en el dominio deployado.
+    url: "https://aigon.neura.com.py",
     cleartext: false,
     allowNavigation: ["aigon.neura.com.py", "*.neura.com.py"],
   },
