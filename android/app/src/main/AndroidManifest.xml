@@ -41,4 +41,6 @@
     <!-- Notas de voz del asesor (grabación de audio en el WebView vía getUserMedia/MediaRecorder) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Push FCM. Obligatorio declararlo desde Android 13 (API 33+) para poder pedirlo en runtime. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>
