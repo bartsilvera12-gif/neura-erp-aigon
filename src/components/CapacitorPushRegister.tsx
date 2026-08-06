@@ -58,6 +58,38 @@ export default function CapacitorPushRegister() {
           }
         );
 
+        // App en PRIMER PLANO: Android no dibuja la notificación del sistema, se la entrega
+        // a la app. La replicamos como notificación local para que suene igual que en
+        // background. Si @capacitor/local-notifications no está instalado, el import falla
+        // y se degrada en silencio (no rompe el registro de push).
+        const fgSub = await PushNotifications.addListener(
+          "pushNotificationReceived",
+          async (notif) => {
+            try {
+              const { LocalNotifications } = await import("@capacitor/local-notifications");
+              const perm = await LocalNotifications.checkPermissions();
+              if (perm.display !== "granted") {
+                const req = await LocalNotifications.requestPermissions();
+                if (req.display !== "granted") return;
+              }
+              await LocalNotifications.schedule({
+                notifications: [
+                  {
+                    // int32 acotado: el plugin exige id numérico y falla con valores grandes.
+                    id: Math.floor(Math.random() * 2_000_000_000),
+                    title: notif.title ?? "Nuevo mensaje",
+                    body: notif.body ?? "",
+                    sound: undefined, // usa el sonido por defecto del canal
+                    extra: notif.data ?? {},
+                  },
+                ],
+              });
+            } catch {
+              /* plugin ausente o permiso denegado → sin notificación en foreground */
+            }
+          }
+        );
+
         const perm = await PushNotifications.checkPermissions();
         let granted = perm.receive === "granted";
         if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {
@@ -72,6 +104,7 @@ export default function CapacitorPushRegister() {
           void regSub.remove();
           void errSub.remove();
           void tapSub.remove();
+          void fgSub.remove();
         };
       } catch {
         /* entorno sin capa nativa → no-op */

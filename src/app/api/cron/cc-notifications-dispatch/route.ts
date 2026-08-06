@@ -196,7 +196,18 @@ async function handle(req: NextRequest) {
         tokens,
         notification: { title, body },
         data: { conversationId: ev.conversation_id ?? "", route, type: ev.type, agentId: ev.agent_id ?? "" },
-        android: { priority: "high" },
+        // Sin `sound` explícito Android entrega la notificación en silencio (el canal por
+        // defecto queda con importancia baja). `defaultSound` + `defaultVibrateTimings`
+        // hacen que suene y vibre como cualquier app de mensajería.
+        android: {
+          priority: "high",
+          notification: {
+            sound: "default",
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            priority: "high",
+          },
+        },
       });
       const toDeactivate: string[] = [];
       res.responses.forEach((r, i) => {
