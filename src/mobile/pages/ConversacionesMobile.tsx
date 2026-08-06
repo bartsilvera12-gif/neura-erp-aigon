@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, FileText, Mic, MessageCircle, Search, Send, Square } from "lucide-react";
+import { ArrowLeft, FileText, ImagePlus, Mic, MessageCircle, Search, Send, Square } from "lucide-react";
 import {
   attachmentCaptionForDisplay,
   getErpAttachmentPublicUrl,
@@ -172,6 +172,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const [recording, setRecording] = useState(false);
   const [recordingSince, setRecordingSince] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
@@ -196,6 +197,34 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     }
     setSending(false);
   }, [text, sending, conversationId, mutate]);
+
+  /** Manejador del input file: sube fotos / documentos vía /api/chat/send-media. */
+  const onPickFile = useCallback(
+    async (ev: React.ChangeEvent<HTMLInputElement>) => {
+      const f = ev.target.files?.[0];
+      // Reset del input para permitir seleccionar el mismo archivo dos veces seguidas.
+      ev.target.value = "";
+      if (!f) return;
+      if (f.size < 1) {
+        setError("El archivo está vacío.");
+        return;
+      }
+      if (f.size > 15 * 1024 * 1024) {
+        setError("Archivo demasiado grande (máx 15 MB).");
+        return;
+      }
+      setSending(true);
+      setError(null);
+      const res = await sendMobileMediaFile({ conversationId, file: f });
+      if (!res.ok) {
+        setError(res.error ?? "No se pudo enviar el archivo.");
+      } else {
+        await mutate();
+      }
+      setSending(false);
+    },
+    [conversationId, mutate]
+  );
 
   /** Envía el blob grabado por el MediaRecorder a /api/chat/send-media como audio. */
   const uploadVoiceBlob = useCallback(
@@ -361,6 +390,25 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           </div>
         ) : null}
         <div className="flex items-end gap-2">
+          {/* Input file oculto (foto/imagen/pdf/documento). Al seleccionar se envía directo. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+            onChange={onPickFile}
+            className="hidden"
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending || recording}
+            aria-label="Adjuntar foto o documento"
+            title="Adjuntar foto o documento"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ImagePlus className="h-5 w-5" />
+          </button>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
