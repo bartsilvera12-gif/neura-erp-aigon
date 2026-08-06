@@ -62,6 +62,58 @@ export async function applyInboundWindowAndAssignPg(
   }
 }
 
+/**
+ * Encola el push `new_message` para una conversación YA asignada (el `new_lead` de las
+ * conversaciones nuevas lo genera la propia RPC `cc_assign_conversation`).
+ *
+ * Nunca lanza: un fallo acá no debe interrumpir el ingest del mensaje.
+ */
+export async function enqueueNewMessageNotification(opts: {
+  pool: Pool | null;
+  supabase: SupabaseAdmin;
+  useTenantPg: boolean;
+  schema: string;
+  empresaId: string;
+  conversationId: string;
+  agentId: string;
+  messageId: string | null;
+  waMessageId: string | null;
+  preview: string;
+}): Promise<CcInboundResult> {
+  try {
+    const sch = assertAllowedChatDataSchema(opts.schema);
+    const metadata = {
+      message_id: opts.messageId,
+      wa_message_id: opts.waMessageId,
+      preview: opts.preview.slice(0, 140),
+    };
+
+    if (opts.useTenantPg && opts.pool) {
+      await opts.pool.query(
+        `INSERT INTO "${sch}".agent_notification_events
+           (empresa_id, agent_id, conversation_id, type, channel, status, metadata)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, 'new_message', 'fcm', 'pending', $4::jsonb)`,
+        [opts.empresaId, opts.agentId, opts.conversationId, JSON.stringify(metadata)]
+      );
+      return { ok: true, assigned: false, reason: "new_message_enqueued" };
+    }
+
+    const { error } = await opts.supabase.from("agent_notification_events").insert({
+      empresa_id: opts.empresaId,
+      agent_id: opts.agentId,
+      conversation_id: opts.conversationId,
+      type: "new_message",
+      channel: "fcm",
+      status: "pending",
+      metadata,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, assigned: false, reason: "new_message_enqueued" };
+  } catch (e) {
+    return ccError(e);
+  }
+}
+
 /** Vía PostgREST (schema tenant expuesto, p. ej. neura). Nunca lanza. */
 export async function applyInboundWindowAndAssignRest(
   supabase: SupabaseAdmin,

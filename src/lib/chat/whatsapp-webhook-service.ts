@@ -5,6 +5,12 @@ import {
 import { createFlowEngine } from "@/lib/chat/flow-engine-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-service";
+import {
+  applyInboundWindowAndAssignPg,
+  applyInboundWindowAndAssignRest,
+  contactCenterV1Enabled,
+  enqueueNewMessageNotification,
+} from "@/lib/chat/contact-center-inbound";
 import { captureFirstMetaAttribution } from "@/lib/chat/meta-attribution-storage";
 import { assignConversation } from "@/lib/chat/assign-conversation-service";
 import { assignConversationPg } from "@/lib/chat/webhooks/assign-conversation-pg";
@@ -1124,6 +1130,8 @@ export async function processInboundWebhookValue(
       });
 
       let inboundRowId: string | null = null;
+      /** Solo true cuando el mensaje se insertó por primera vez: evita re-notificar reprocesos. */
+      let inboundNewlyPersisted = false;
 
       if (inboundMessageAlreadyPersisted) {
         const { data: existingInbound } = await supabase
@@ -1209,6 +1217,7 @@ export async function processInboundWebhookValue(
           }
         } else {
           inboundRowId = persistInbound.message_id;
+          inboundNewlyPersisted = true;
           console.info(logW, "inbound_message_persisted", {
             conversationId,
             waMessageId: waMid,
@@ -1238,6 +1247,56 @@ export async function processInboundWebhookValue(
               error: e instanceof Error ? e.message : "unknown",
             });
           }
+        }
+      }
+
+      // ── Contact Center V1 (paridad con el webhook YCloud) ────────────────────
+      // El pipeline Meta no pasa por `saveIncomingMessage`, así que la ventana 24h,
+      // la asignación automática y los eventos push hay que dispararlos acá.
+      //
+      //  - conversación SIN agente  → `cc_assign_conversation` asigna y encola `new_lead`.
+      //  - conversación YA asignada → encolamos `new_message` nosotros.
+      //
+      // Todo detrás del flag CONTACT_CENTER_V1 y envuelto en try/catch: ninguna falla
+      // del Contact Center puede interrumpir el ingest del mensaje (que ya está persistido).
+      if (contactCenterV1Enabled() && inboundNewlyPersisted) {
+        try {
+          const cc =
+            useTenantPg && pool
+              ? await applyInboundWindowAndAssignPg(pool, tenantDataSchema, empresaId, conversationId)
+              : await applyInboundWindowAndAssignRest(supabase, tenantDataSchema, empresaId, conversationId);
+
+          if (!cc.ok) {
+            console.warn(logW, "cc_assign_failed", { conversationId, error: cc.error });
+          } else if (cc.assigned) {
+            // `cc_assign_conversation` ya insertó el evento `new_lead`.
+            console.info(logW, "cc_assigned", { conversationId, agent_id: cc.agent_id ?? null });
+          } else if (cc.reason === "already_assigned" && cc.agent_id) {
+            const enq = await enqueueNewMessageNotification({
+              pool,
+              supabase,
+              useTenantPg,
+              schema: tenantDataSchema,
+              empresaId,
+              conversationId,
+              agentId: cc.agent_id,
+              messageId: inboundRowId,
+              waMessageId: waMid,
+              preview,
+            });
+            if (!enq.ok) {
+              console.warn(logW, "cc_new_message_enqueue_failed", { conversationId, error: enq.error });
+            } else {
+              console.info(logW, "cc_new_message_enqueued", { conversationId, agent_id: cc.agent_id });
+            }
+          } else {
+            console.info(logW, "cc_not_assigned", { conversationId, reason: cc.reason ?? null });
+          }
+        } catch (e) {
+          console.warn(logW, "cc_block_threw", {
+            conversationId,
+            error: e instanceof Error ? e.message : "unknown",
+          });
         }
       }
 
