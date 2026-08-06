@@ -7,6 +7,7 @@ import Sidebar from "./layout/Sidebar";
 import Header from "./layout/Header";
 import AgentPresenceHeartbeat from "./AgentPresenceHeartbeat";
 import { useApkView } from "@/shared/hooks/useApkView";
+import CapacitorPushRegister from "./CapacitorPushRegister";
 
 const STANDALONE_ROUTES = ["/login"];
 
@@ -45,6 +46,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
+          {/* Registra el token FCM del dispositivo. No-op fuera de la APK nativa. */}
+          <CapacitorPushRegister />
           <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
             {children}
           </main>

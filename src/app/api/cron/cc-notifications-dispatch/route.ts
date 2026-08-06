@@ -170,7 +170,11 @@ async function handle(req: NextRequest) {
       title = whoMsg || "Nuevo mensaje";
       body = preview ? preview.slice(0, 140) : "Nuevo mensaje";
     }
-    const route = ev.conversation_id ? `/m/asesor/chat/${ev.conversation_id}` : "/m/asesor";
+    // Deep link al tocar la notificación en la APK. La vista mobile de Aigon lee la
+    // conversación desde `?id=` y `?apkView=1` mantiene el modo sin chrome.
+    const route = ev.conversation_id
+      ? `/dashboard/conversaciones?id=${encodeURIComponent(ev.conversation_id)}&apkView=1`
+      : "/dashboard/conversaciones?apkView=1";
 
     if (dryRun) {
       wouldSend++;
