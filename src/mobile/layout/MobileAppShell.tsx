@@ -7,6 +7,7 @@ import MobileHeader from "./MobileHeader";
 import MobileMenu from "./MobileMenu";
 import { useApkView } from "@/shared/hooks/useApkView";
 import CapacitorPushRegister from "@/components/CapacitorPushRegister";
+import ApkLandingRedirect from "@/components/ApkLandingRedirect";
 
 const STANDALONE_ROUTES = ["/login"];
 
@@ -49,6 +50,7 @@ export default function MobileAppShell({ children }: { children: React.ReactNode
         >
           {/* Registra el token FCM del dispositivo. No-op fuera de la APK nativa. */}
           <CapacitorPushRegister />
+          <ApkLandingRedirect />
           <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
             {children}
           </main>

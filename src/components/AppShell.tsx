@@ -8,6 +8,7 @@ import Header from "./layout/Header";
 import AgentPresenceHeartbeat from "./AgentPresenceHeartbeat";
 import { useApkView } from "@/shared/hooks/useApkView";
 import CapacitorPushRegister from "./CapacitorPushRegister";
+import ApkLandingRedirect from "./ApkLandingRedirect";
 
 const STANDALONE_ROUTES = ["/login"];
 
@@ -48,6 +49,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         >
           {/* Registra el token FCM del dispositivo. No-op fuera de la APK nativa. */}
           <CapacitorPushRegister />
+          <ApkLandingRedirect />
           <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
             {children}
           </main>
