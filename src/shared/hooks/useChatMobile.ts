@@ -101,10 +101,11 @@ export async function sendMobileMessage(opts: {
     const res = await fetchWithSupabaseSession("/api/chat/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      // Nombre del campo debe ser `message` — es lo que espera /api/chat/send.
+      // Mandar `text` (como se hacía antes) provoca 400: "Se requiere conversation_id y message".
       body: JSON.stringify({
         conversation_id: opts.conversationId,
-        message_type: "text",
-        text: opts.text,
+        message: opts.text,
       }),
     });
     if (!res.ok) {
