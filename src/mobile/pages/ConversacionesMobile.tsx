@@ -2,7 +2,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Clock, FileText, ImagePlus, Mic, MessageCircle, RotateCw, Search, Send, Smile, Square, Star, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, RotateCw, Search, Send, Smile, Square, Star, X } from "lucide-react";
+import { EMOJI_CATEGORIES } from "@/mobile/data/emojis";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
   attachmentCaptionForDisplay,
@@ -249,7 +250,13 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
    */
   const [optimistic, setOptimistic] = useState<OptimisticMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Input file para foto / galería (multi). */
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Input file para documento (PDF, office, etc.). Separado del de fotos para que
+   *  Android abra el file browser de docs en vez del picker de galería. */
+  const docInputRef = useRef<HTMLInputElement>(null);
+  /** Menú desplegable "Foto / Documento" del botón de adjuntar. */
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
@@ -604,7 +611,10 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   return (
     <div className="flex h-full flex-col">
       {/* Header con back */}
-      <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur-sm">
+      <header
+        className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur-sm"
+        style={{ paddingTop: "calc(env(safe-area-inset-top) + 8px)" }}
+      >
         <button
           type="button"
           onClick={onBack}
@@ -678,33 +688,86 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             </span>
           </div>
         ) : null}
-        <div className="flex items-end gap-2">
-          {/* Input file oculto (foto/imagen/pdf/documento). Al seleccionar se envía directo. */}
+        <div className="relative flex items-end gap-2">
+          {/* Inputs file ocultos: foto (galería, multi) y documento (browser de archivos). */}
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+            accept="image/*"
             onChange={onPickFile}
             className="hidden"
             aria-hidden="true"
           />
+          <input
+            ref={docInputRef}
+            type="file"
+            accept="application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,*/*"
+            onChange={onPickFile}
+            className="hidden"
+            aria-hidden="true"
+          />
+
+          {/* Menú desplegable de Foto / Documento sobre el botón de clip. */}
+          {attachMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute bottom-14 left-0 z-30 flex min-w-[180px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachMenuOpen(false);
+                  fileInputRef.current?.click();
+                }}
+                className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-purple-600">
+                  <ImageIcon className="h-4 w-4" />
+                </span>
+                Foto o galería
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachMenuOpen(false);
+                  docInputRef.current?.click();
+                }}
+                className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sky-600">
+                  <File className="h-4 w-4" />
+                </span>
+                Documento
+              </button>
+            </div>
+          ) : null}
+          {/* Backdrop para cerrar el menú al tocar fuera. */}
+          {attachMenuOpen ? (
+            <button
+              type="button"
+              aria-label="Cerrar menú"
+              onClick={() => setAttachMenuOpen(false)}
+              className="fixed inset-0 z-20 cursor-default bg-transparent"
+            />
+          ) : null}
+
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={sending || recording}
-            aria-label="Adjuntar foto o documento"
-            title="Adjuntar foto o documento"
+            onClick={() => setAttachMenuOpen((v) => !v)}
+            disabled={recording}
+            aria-label="Adjuntar"
+            title="Adjuntar"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <ImagePlus className="h-5 w-5" />
+            <Paperclip className="h-5 w-5" />
           </button>
           <button
             type="button"
             onClick={() => void openStickerPicker()}
-            disabled={sending || recording}
-            aria-label="Enviar sticker"
-            title="Stickers"
+            disabled={recording}
+            aria-label="Emojis y stickers"
+            title="Emojis y stickers"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Smile className="h-5 w-5" />
@@ -749,14 +812,15 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         </div>
       </div>
 
-      {/* Drawer del picker de stickers (envío) */}
+      {/* Drawer con tabs Emojis / Stickers */}
       {stickerPickerOpen ? (
-        <StickerPickerDrawer
+        <EmojiStickerDrawer
           packs={stickerCatalog ?? []}
           loading={stickerCatalogLoading}
           disabled={sending}
           onClose={() => setStickerPickerOpen(false)}
-          onSelect={onSelectStickerToSend}
+          onSelectSticker={onSelectStickerToSend}
+          onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
         />
       ) : null}
 
@@ -1021,24 +1085,34 @@ function OptimisticBubble({ opt }: { opt: OptimisticMessage }) {
   );
 }
 
-function StickerPickerDrawer({
+/**
+ * Drawer estilo WhatsApp con dos modos:
+ *  - Emojis: grilla categorizada, insert al textarea (drawer queda abierto).
+ *  - Stickers: catálogo por paquete, envía al toque y cierra.
+ */
+function EmojiStickerDrawer({
   packs,
   loading,
   disabled,
   onClose,
-  onSelect,
+  onSelectSticker,
+  onPickEmoji,
 }: {
   packs: StickerCatalogPack[];
   loading: boolean;
   disabled: boolean;
   onClose: () => void;
-  onSelect: (stickerId: string, previewUrl: string) => void;
+  onSelectSticker: (stickerId: string, previewUrl: string) => void;
+  onPickEmoji: (emoji: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState(0);
+  const [mode, setMode] = useState<"emojis" | "stickers">("emojis");
+  const [emojiCat, setEmojiCat] = useState(0);
+  const [packTab, setPackTab] = useState(0);
   useEffect(() => {
-    setActiveTab(0);
+    setPackTab(0);
   }, [packs.length]);
-  const activePack = packs[activeTab];
+  const activePack = packs[packTab];
+  const activeEmojiCat = EMOJI_CATEGORIES[emojiCat];
 
   return (
     <div
@@ -1048,13 +1122,37 @@ function StickerPickerDrawer({
     >
       <div
         role="dialog"
-        aria-label="Elegí un sticker"
+        aria-label={mode === "emojis" ? "Elegí un emoji" : "Elegí un sticker"}
         onClick={(ev) => ev.stopPropagation()}
         className="flex max-h-[65svh] flex-col rounded-t-2xl border-t border-slate-200 bg-white"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)" }}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-          <h3 className="text-sm font-semibold text-slate-800">Stickers</h3>
+        {/* Header con tabs de modo + cerrar */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-2 py-2">
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setMode("emojis")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                mode === "emojis"
+                  ? "bg-[#0EA5E9]/10 text-[#0284C7]"
+                  : "text-slate-500 hover:bg-slate-50"
+              }`}
+            >
+              Emojis
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("stickers")}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                mode === "stickers"
+                  ? "bg-[#0EA5E9]/10 text-[#0284C7]"
+                  : "text-slate-500 hover:bg-slate-50"
+              }`}
+            >
+              Stickers
+            </button>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -1065,59 +1163,100 @@ function StickerPickerDrawer({
           </button>
         </div>
 
-        {loading ? (
-          <p className="p-6 text-center text-sm text-slate-500">Cargando catálogo…</p>
-        ) : packs.length === 0 ? (
-          <div className="p-6 text-center text-sm text-slate-500">
-            <p className="font-medium text-slate-700">Todavía no hay stickers guardados</p>
-            <p className="mt-1 text-xs">
-              Guardá stickers que te manden los clientes tocando la <Star className="inline h-3 w-3 -translate-y-0.5 text-amber-500" fill="currentColor" /> en su burbuja.
-            </p>
-          </div>
-        ) : (
+        {/* Modo Emojis */}
+        {mode === "emojis" ? (
           <>
-            {/* Tabs por paquete */}
             <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2">
-              {packs.map((p, i) => (
+              {EMOJI_CATEGORIES.map((c, i) => (
                 <button
-                  key={p.id}
+                  key={c.label}
                   type="button"
-                  onClick={() => setActiveTab(i)}
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                    i === activeTab
-                      ? "bg-[#0EA5E9] text-white"
-                      : "bg-slate-100 text-slate-600"
+                  onClick={() => setEmojiCat(i)}
+                  aria-label={c.label}
+                  className={`shrink-0 rounded-full px-2 py-1 text-lg leading-none ${
+                    i === emojiCat ? "bg-[#0EA5E9]/10" : "hover:bg-slate-50"
                   }`}
                 >
-                  {p.nombre}
+                  {c.icon}
                 </button>
               ))}
             </div>
-            {/* Grilla */}
-            <div className="flex-1 overflow-y-auto p-3">
-              {activePack?.stickers.length ? (
-                <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-                  {activePack.stickers.map((s) => (
+            <div className="flex-1 overflow-y-auto p-2">
+              <div className="grid grid-cols-8 gap-1 sm:grid-cols-10">
+                {activeEmojiCat.emojis.map((e, i) => (
+                  <button
+                    key={`${activeEmojiCat.label}-${i}`}
+                    type="button"
+                    onClick={() => onPickEmoji(e)}
+                    className="flex aspect-square items-center justify-center rounded-lg text-2xl transition-transform active:scale-95 hover:bg-slate-50"
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          /* Modo Stickers */
+          <>
+            {loading ? (
+              <p className="p-6 text-center text-sm text-slate-500">Cargando catálogo…</p>
+            ) : packs.length === 0 ? (
+              <div className="p-6 text-center text-sm text-slate-500">
+                <p className="font-medium text-slate-700">Todavía no hay stickers guardados</p>
+                <p className="mt-1 text-xs">
+                  Guardá stickers que te manden los clientes tocando la{" "}
+                  <Star
+                    className="inline h-3 w-3 -translate-y-0.5 text-amber-500"
+                    fill="currentColor"
+                  />{" "}
+                  en su burbuja.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2">
+                  {packs.map((p, i) => (
                     <button
-                      key={s.id}
+                      key={p.id}
                       type="button"
-                      disabled={disabled}
-                      onClick={() => onSelect(s.id, s.public_url)}
-                      className="flex aspect-square items-center justify-center rounded-lg bg-slate-50 p-1 transition-transform active:scale-95 disabled:opacity-40"
+                      onClick={() => setPackTab(i)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                        i === packTab
+                          ? "bg-[#0EA5E9] text-white"
+                          : "bg-slate-100 text-slate-600"
+                      }`}
                     >
-                      <img
-                        src={s.public_url}
-                        alt="sticker"
-                        loading="lazy"
-                        className="max-h-full max-w-full object-contain"
-                      />
+                      {p.nombre}
                     </button>
                   ))}
                 </div>
-              ) : (
-                <p className="p-6 text-center text-sm text-slate-500">Paquete vacío</p>
-              )}
-            </div>
+                <div className="flex-1 overflow-y-auto p-3">
+                  {activePack?.stickers.length ? (
+                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+                      {activePack.stickers.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => onSelectSticker(s.id, s.public_url)}
+                          className="flex aspect-square items-center justify-center rounded-lg bg-slate-50 p-1 transition-transform active:scale-95 disabled:opacity-40"
+                        >
+                          <img
+                            src={s.public_url}
+                            alt="sticker"
+                            loading="lazy"
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="p-6 text-center text-sm text-slate-500">Paquete vacío</p>
+                  )}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
