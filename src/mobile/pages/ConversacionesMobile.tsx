@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Camera, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
 import { EMOJI_CATEGORIES } from "@/mobile/data/emojis";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
@@ -280,6 +280,10 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const cameraVideoRef = useRef<HTMLInputElement>(null);
   /** Menú desplegable con Foto/Video/Cámara foto/Cámara video/Documento. */
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  /** Mensaje al que el operador está por responder (Meta lo muestra citado). */
+  const [replyingTo, setReplyingTo] = useState<MobileChatMessage | null>(null);
+  /** Mensaje sobre el que se abre el menú de contexto (long-press). */
+  const [messageMenu, setMessageMenu] = useState<MobileChatMessage | null>(null);
   /**
    * Archivos seleccionados en el picker que esperan confirmación antes de enviarse.
    * El usuario puede quitar algunos con la X o cancelar todo antes de mandar.
@@ -295,6 +299,29 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, optimistic.length]);
+
+  /** Mapa wa_message_id → mensaje, para resolver citas (reply-to) en cada burbuja. */
+  const messagesByWaId = useMemo(() => {
+    const map = new Map<string, MobileChatMessage>();
+    for (const m of messages) {
+      if (m.wa_message_id && m.wa_message_id.length > 0) map.set(m.wa_message_id, m);
+    }
+    return map;
+  }, [messages]);
+
+  /** Resuelve el mensaje citado a partir del raw_payload (context.id o erp.reply_to_wa_message_id). */
+  function resolveQuotedFor(m: MobileChatMessage): MobileChatMessage | null {
+    const raw = (m.raw_payload ?? null) as
+      | (Record<string, unknown> & {
+          context?: { id?: string };
+          erp?: { reply_to_wa_message_id?: string };
+        })
+      | null;
+    if (!raw) return null;
+    const wamid = raw.context?.id ?? raw.erp?.reply_to_wa_message_id;
+    if (!wamid) return null;
+    return messagesByWaId.get(wamid) ?? null;
+  }
 
   /**
    * Al abrir el chat (o cambiar de conversación), marcar como leído en Meta →
@@ -331,7 +358,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
    * - Si el envío falla, el globo queda marcado con borde rojo y un botón "Reintentar".
    */
   const doSendText = useCallback(
-    async (raw: string) => {
+    async (raw: string, replyTo?: string) => {
       const t = raw.trim();
       if (!t) return;
       const optId = makeOptimisticId();
@@ -340,7 +367,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         ...prev,
         { id: optId, createdAt: nowIso, type: "text", content: t, status: "sending" },
       ]);
-      const res = await sendMobileMessage({ conversationId, text: t });
+      const res = await sendMobileMessage({ conversationId, text: t, replyTo });
       if (!res.ok) {
         setOptimistic((prev) =>
           prev.map((m) =>
@@ -351,7 +378,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                   errorMessage: res.error ?? "No se pudo enviar",
                   retry: () => {
                     setOptimistic((p) => p.filter((x) => x.id !== optId));
-                    void doSendText(t);
+                    void doSendText(t, replyTo);
                   },
                 }
               : m
@@ -359,7 +386,6 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         );
         return;
       }
-      // Refrescar la lista y quitar el optimistic — el server ya tiene la fila real.
       await mutate();
       setOptimistic((prev) => prev.filter((m) => m.id !== optId));
     },
@@ -371,8 +397,10 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     if (!t) return;
     setError(null);
     setText(""); // limpiar al toque
-    await doSendText(t);
-  }, [text, doSendText]);
+    const replyTo = replyingTo?.wa_message_id ?? undefined;
+    setReplyingTo(null); // limpiar la cita al enviar
+    await doSendText(t, replyTo);
+  }, [text, doSendText, replyingTo]);
 
   /** Progreso de envío múltiple: mostramos "Enviando 2/5…" en el composer. */
   const [uploadQueue, setUploadQueue] = useState<{ current: number; total: number } | null>(null);
@@ -470,12 +498,20 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     });
     setOptimistic((prev) => [...prev, ...entries.map((e) => e.opt)]);
     setPendingFiles(null); // NO revocamos los blob URLs — los pasamos al optimistic
+    // La cita del reply-to se aplica SOLO al primer archivo (como hace WhatsApp)
+    // y después se limpia para que los subsiguientes vayan como mensajes normales.
+    const replyTo = replyingTo?.wa_message_id ?? undefined;
+    setReplyingTo(null);
 
     const errors: string[] = [];
     for (let i = 0; i < entries.length; i++) {
       setUploadQueue({ current: i + 1, total: entries.length });
       const { file, opt } = entries[i];
-      const res = await sendMobileMediaFile({ conversationId, file });
+      const res = await sendMobileMediaFile({
+        conversationId,
+        file,
+        replyTo: i === 0 ? replyTo : undefined,
+      });
       if (!res.ok) {
         errors.push(`${file.name}: ${res.error ?? "error"}`);
         setOptimistic((prev) =>
@@ -506,7 +542,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       }
     }
     setOptimistic((prev) => prev.filter((m) => !okIds.has(m.id)));
-  }, [pendingFiles, conversationId, mutate]);
+  }, [pendingFiles, conversationId, mutate, replyingTo]);
 
   /** Envía el blob grabado por el MediaRecorder a /api/chat/send-media como audio (optimistic). */
   const uploadVoiceBlob = useCallback(
@@ -535,7 +571,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           status: "sending",
         },
       ]);
-      const res = await sendMobileMediaFile({ conversationId, file });
+      const replyTo = replyingTo?.wa_message_id ?? undefined;
+      setReplyingTo(null);
+      const res = await sendMobileMediaFile({ conversationId, file, replyTo });
       if (!res.ok) {
         setOptimistic((prev) =>
           prev.map((m) =>
@@ -551,7 +589,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       try { URL.revokeObjectURL(previewUrl); } catch { /* noop */ }
       setOptimistic((prev) => prev.filter((m) => m.id !== optId));
     },
-    [conversationId, mutate]
+    [conversationId, mutate, replyingTo]
   );
 
   const toggleRecord = useCallback(async () => {
@@ -757,7 +795,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
               <MessageBubble
                 key={m.id}
                 message={m}
+                quotedMessage={resolveQuotedFor(m)}
                 onSaveIncomingSticker={() => setSaveStickerFor(m)}
+                onLongPress={() => setMessageMenu(m)}
               />
             ))}
             {optimistic.map((m) => (
@@ -777,6 +817,25 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         className="shrink-0 border-t border-slate-200 bg-white px-2 py-2"
         style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
       >
+        {/* Banner de cita cuando hay un mensaje seleccionado para responder */}
+        {replyingTo ? (
+          <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#0EA5E9] bg-[#0EA5E9]/8 px-2 py-1.5 text-[11px] text-slate-700">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-[#0284C7]">
+                Respondiendo a {replyingTo.from_me ? "vos mismo" : "el cliente"}
+              </p>
+              <p className="mt-0.5 line-clamp-2 opacity-90">{previewForQuoted(replyingTo)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              aria-label="Cancelar cita"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-white/60"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
         {recording ? (
           <div className="mb-2 flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
@@ -972,6 +1031,50 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         />
       ) : null}
 
+      {/* Menú de contexto: acciones sobre un mensaje (long-press) */}
+      {messageMenu ? (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center"
+          role="presentation"
+          onClick={() => setMessageMenu(null)}
+        >
+          <div
+            role="dialog"
+            aria-label="Acciones sobre el mensaje"
+            onClick={(ev) => ev.stopPropagation()}
+            className="w-full max-w-sm rounded-t-2xl bg-white sm:rounded-2xl"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <p className="text-sm font-semibold text-slate-800">Mensaje</p>
+              <button
+                type="button"
+                onClick={() => setMessageMenu(null)}
+                aria-label="Cerrar"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex flex-col py-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setReplyingTo(messageMenu);
+                  setMessageMenu(null);
+                }}
+                className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0EA5E9]/10 text-[#0284C7]">
+                  <Reply className="h-4 w-4" />
+                </span>
+                Responder
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Preview de archivos seleccionados antes de mandar */}
       {pendingFiles && pendingFiles.length > 0 ? (
         <PendingFilesPreview
@@ -998,10 +1101,15 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
 
 function MessageBubble({
   message,
+  quotedMessage,
   onSaveIncomingSticker,
+  onLongPress,
 }: {
   message: MobileChatMessage;
+  /** Mensaje al que este responde (resuelto por wa_message_id). */
+  quotedMessage?: MobileChatMessage | null;
   onSaveIncomingSticker?: () => void;
+  onLongPress?: () => void;
 }) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
@@ -1018,10 +1126,45 @@ function MessageBubble({
   const isSticker = type === "sticker";
   const canSaveSticker = isSticker && !fromMe && Boolean(mediaUrl) && Boolean(onSaveIncomingSticker);
 
+  // ── Long-press → dispara onLongPress. Cancela si el usuario mueve el dedo
+  //    (evita chocarse con el scroll de la lista).
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef(false);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+  };
+  const handlePointerDown = (ev: React.PointerEvent) => {
+    if (!onLongPress) return;
+    longPressFiredRef.current = false;
+    longPressStartRef.current = { x: ev.clientX, y: ev.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressFiredRef.current = true;
+      onLongPress();
+    }, 500);
+  };
+  const handlePointerMove = (ev: React.PointerEvent) => {
+    const s = longPressStartRef.current;
+    if (!s) return;
+    const dx = Math.abs(ev.clientX - s.x);
+    const dy = Math.abs(ev.clientY - s.y);
+    if (dx > 10 || dy > 10) cancelLongPress();
+  };
+  const handlePointerUp = () => cancelLongPress();
+  const handlePointerCancel = () => cancelLongPress();
+
   return (
     <li className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
       <div
-        className={`relative max-w-[80%] overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        className={`relative max-w-[80%] select-none overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
           isSticker
             ? "bg-transparent shadow-none"
             : fromMe
@@ -1029,6 +1172,23 @@ function MessageBubble({
               : "rounded-bl-sm bg-white text-slate-800"
         } ${isSticker ? "" : "px-3 py-2"}`}
       >
+        {/* Bloque de cita (mensaje al que este responde). */}
+        {quotedMessage && !isSticker ? (
+          <div
+            className={`mb-1.5 rounded-lg border-l-4 px-2 py-1 text-[11px] ${
+              fromMe
+                ? "border-white/60 bg-white/15 text-white/90"
+                : "border-[#0EA5E9] bg-[#0EA5E9]/8 text-slate-700"
+            }`}
+          >
+            <p className="truncate font-medium">
+              {quotedMessage.from_me ? "Vos" : "Cliente"}
+            </p>
+            <p className="line-clamp-2 opacity-90">
+              {previewForQuoted(quotedMessage)}
+            </p>
+          </div>
+        ) : null}
         {canSaveSticker ? (
           <button
             type="button"
@@ -1146,6 +1306,18 @@ function formatRelative(iso: string): string {
   if (diffH < 24) return `${diffH}h`;
   const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString("es-PY", sameYear ? { day: "2-digit", month: "short" } : { day: "2-digit", month: "short", year: "2-digit" });
+}
+
+/** Texto corto para representar un mensaje citado (bloque arriba del contenido). */
+function previewForQuoted(m: MobileChatMessage): string {
+  const t = m.message_type || "text";
+  if (t === "text") return (m.content ?? "").slice(0, 140) || "Mensaje";
+  if (t === "image") return "📷 Imagen";
+  if (t === "video") return "🎥 Video";
+  if (t === "audio") return "🎤 Nota de voz";
+  if (t === "sticker") return "🌟 Sticker";
+  if (t === "document") return "📎 Documento";
+  return "Mensaje";
 }
 
 function formatHora(iso: string): string {

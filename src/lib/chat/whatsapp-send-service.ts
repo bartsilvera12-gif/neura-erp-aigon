@@ -18,6 +18,8 @@ export type SendWhatsAppTextParams = {
   phoneNumberId: string;
   accessToken: string;
   graphVersion?: string;
+  /** wa_message_id al que este mensaje "responde" (Meta muestra el mensaje citado). */
+  replyToWaMessageId?: string;
 };
 
 export type SendWhatsAppTextResult =
@@ -43,6 +45,7 @@ export type SendWhatsAppImageParams = {
   imageUrl: string;
   caption?: string;
   graphVersion?: string;
+  replyToWaMessageId?: string;
 };
 
 export type SendWhatsAppDocumentParams = {
@@ -54,6 +57,7 @@ export type SendWhatsAppDocumentParams = {
   filename: string;
   caption?: string;
   graphVersion?: string;
+  replyToWaMessageId?: string;
 };
 
 export type SendWhatsAppAudioParams = {
@@ -63,6 +67,7 @@ export type SendWhatsAppAudioParams = {
   /** URL HTTPS pública del audio (ogg/opus, mpeg, etc.). */
   audioUrl: string;
   graphVersion?: string;
+  replyToWaMessageId?: string;
 };
 
 async function sendWhatsAppPayload(
@@ -108,6 +113,7 @@ export async function sendWhatsAppText(
 ): Promise<SendWhatsAppTextResult> {
   return sendWhatsAppPayload(params, {
     messaging_product: "whatsapp",
+    ...(params.replyToWaMessageId ? { context: { message_id: params.replyToWaMessageId } } : {}),
     to: params.toDigits,
     type: "text",
     text: { body: params.text },
@@ -269,6 +275,7 @@ export async function sendWhatsAppImage(
 ): Promise<SendWhatsAppTextResult> {
   return sendWhatsAppPayload(params, {
     messaging_product: "whatsapp",
+    ...(params.replyToWaMessageId ? { context: { message_id: params.replyToWaMessageId } } : {}),
     to: params.toDigits,
     type: "image",
     image: {
@@ -281,6 +288,7 @@ export async function sendWhatsAppImage(
 export async function sendWhatsAppAudio(params: SendWhatsAppAudioParams): Promise<SendWhatsAppTextResult> {
   return sendWhatsAppPayload(params, {
     messaging_product: "whatsapp",
+    ...(params.replyToWaMessageId ? { context: { message_id: params.replyToWaMessageId } } : {}),
     to: params.toDigits,
     type: "audio",
     audio: { link: params.audioUrl },
@@ -337,11 +345,13 @@ export type SendWhatsAppVideoParams = {
   videoUrl: string;
   caption?: string;
   graphVersion?: string;
+  replyToWaMessageId?: string;
 };
 
 export async function sendWhatsAppVideo(params: SendWhatsAppVideoParams): Promise<SendWhatsAppTextResult> {
   return sendWhatsAppPayload(params, {
     messaging_product: "whatsapp",
+    ...(params.replyToWaMessageId ? { context: { message_id: params.replyToWaMessageId } } : {}),
     to: params.toDigits,
     type: "video",
     video: {
@@ -357,6 +367,7 @@ export async function sendWhatsAppDocument(
   const fn = params.filename.trim() || "documento";
   const body: Record<string, unknown> = {
     messaging_product: "whatsapp",
+    ...(params.replyToWaMessageId ? { context: { message_id: params.replyToWaMessageId } } : {}),
     to: params.toDigits,
     type: "document",
     document: {

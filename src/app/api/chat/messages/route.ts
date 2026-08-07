@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase
       .from("chat_messages")
-      .select("id, from_me, message_type, content, raw_payload, created_at, whatsapp_delivery_status")
+      .select("id, from_me, message_type, content, raw_payload, created_at, whatsapp_delivery_status, wa_message_id")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
 

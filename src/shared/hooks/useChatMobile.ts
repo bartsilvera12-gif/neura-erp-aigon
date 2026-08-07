@@ -22,6 +22,8 @@ export type MobileChatMessage = {
   content: string | null;
   raw_payload: unknown;
   created_at: string;
+  /** wa_message_id de WhatsApp/Meta — usado para resolver citas (reply-to). */
+  wa_message_id?: string | null;
 };
 
 /** Inbox mobile: hasta 50 conversaciones abiertas/pendientes. */
@@ -96,6 +98,8 @@ export function useMobileMessages(conversationId: string | null) {
 export async function sendMobileMessage(opts: {
   conversationId: string;
   text: string;
+  /** wa_message_id al que este texto responde (Meta muestra la cita del lado del cliente). */
+  replyTo?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await fetchWithSupabaseSession("/api/chat/send", {
@@ -106,6 +110,7 @@ export async function sendMobileMessage(opts: {
       body: JSON.stringify({
         conversation_id: opts.conversationId,
         message: opts.text,
+        ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
       }),
     });
     if (!res.ok) {
@@ -122,11 +127,14 @@ export async function sendMobileMessage(opts: {
 export async function sendMobileMediaFile(opts: {
   conversationId: string;
   file: File;
+  /** wa_message_id al que este archivo responde. */
+  replyTo?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const fd = new FormData();
     fd.set("conversation_id", opts.conversationId);
     fd.set("file", opts.file);
+    if (opts.replyTo) fd.set("reply_to", opts.replyTo);
     const res = await fetchWithSupabaseSession("/api/chat/send-media", {
       method: "POST",
       body: fd,

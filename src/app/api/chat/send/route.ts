@@ -47,6 +47,10 @@ export async function POST(request: NextRequest) {
         : "";
     const senderType: "human" | "ai" | "system" =
       senderTypeInput === "ai" || senderTypeInput === "system" ? senderTypeInput : "human";
+    const replyToWaMessageId =
+      body && typeof body === "object" && typeof (body as { reply_to?: string }).reply_to === "string"
+        ? (body as { reply_to: string }).reply_to.trim() || undefined
+        : undefined;
 
     if (!conversationId || !message) {
       return NextResponse.json(
@@ -122,7 +126,7 @@ export async function POST(request: NextRequest) {
       console.info("[api/chat/send] ycloud_outbound", { conversationId });
     }
 
-    const sendResult = await sendOutboundTextMessage(outbound, message);
+    const sendResult = await sendOutboundTextMessage(outbound, message, { replyToWaMessageId });
 
     if (!sendResult.ok) {
       return NextResponse.json(
@@ -133,6 +137,14 @@ export async function POST(request: NextRequest) {
 
     const empresaId = conv.empresa_id;
     const ts = new Date().toISOString();
+
+    // Merge del raw + metadata local (erp.reply_to) para que la UI muestre la cita.
+    const rawWithReply: Record<string, unknown> = {
+      ...((sendResult.raw ?? {}) as Record<string, unknown>),
+      ...(replyToWaMessageId
+        ? { erp: { reply_to_wa_message_id: replyToWaMessageId } }
+        : {}),
+    };
 
     if (tenantPg && pool) {
       try {
@@ -147,7 +159,7 @@ export async function POST(request: NextRequest) {
           automation_source: automationSource || (senderType === "ai" ? "automation" : null),
           message_type: "text",
           content: message,
-          raw_payload: (sendResult.raw ?? {}) as Record<string, unknown>,
+          raw_payload: rawWithReply,
         });
       } catch (insE) {
         const msg = insE instanceof Error ? insE.message : String(insE);
@@ -173,7 +185,7 @@ export async function POST(request: NextRequest) {
         automation_source: automationSource || (senderType === "ai" ? "automation" : null),
         message_type: "text",
         content: message,
-        raw_payload: (sendResult.raw ?? {}) as Record<string, unknown>,
+        raw_payload: rawWithReply,
       });
 
       if (insErr) {

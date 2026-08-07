@@ -354,9 +354,11 @@ export async function resolveOutboundTextContextFromIds(
 
 export async function sendOutboundTextMessage(
   ctx: ChannelOutboundTextContext,
-  text: string
+  text: string,
+  opts?: { replyToWaMessageId?: string }
 ): Promise<SendWhatsAppTextResult> {
   if (ctx.provider === "ycloud") {
+    // YCloud: reply-to no está expuesto en este helper. Se ignora silenciosamente.
     return sendMessageViaYCloud({
       apiKey: ctx.apiKey,
       fromE164: ctx.fromE164,
@@ -369,6 +371,7 @@ export async function sendOutboundTextMessage(
     phoneNumberId: ctx.phoneNumberId,
     accessToken: ctx.accessToken,
     text,
+    replyToWaMessageId: opts?.replyToWaMessageId,
   });
 }
 

@@ -88,6 +88,9 @@ export async function POST(request: NextRequest) {
     const conversationId = typeof convRaw === "string" ? convRaw.trim() : "";
     const capRaw = form?.get("caption");
     const caption = typeof capRaw === "string" ? capRaw.trim().slice(0, 1024) : "";
+    const replyRaw = form?.get("reply_to");
+    const replyToWaMessageId =
+      typeof replyRaw === "string" && replyRaw.trim().length > 0 ? replyRaw.trim() : undefined;
     const file = form?.get("file");
 
     if (!conversationId || !(file instanceof File) || file.size < 1) {
@@ -303,6 +306,7 @@ export async function POST(request: NextRequest) {
         accessToken: token!,
         imageUrl: publicUrl,
         caption: caption || undefined,
+        replyToWaMessageId,
       });
     } else if (isAudio) {
       outboundMessageType = "audio";
@@ -311,6 +315,7 @@ export async function POST(request: NextRequest) {
         phoneNumberId: phoneNumberId!,
         accessToken: token!,
         audioUrl: publicUrl,
+        replyToWaMessageId,
       });
     } else if (isVideo) {
       outboundMessageType = "video";
@@ -320,6 +325,7 @@ export async function POST(request: NextRequest) {
         accessToken: token!,
         videoUrl: publicUrl,
         caption: caption || undefined,
+        replyToWaMessageId,
       });
     } else {
       outboundMessageType = "document";
@@ -330,6 +336,7 @@ export async function POST(request: NextRequest) {
         link: publicUrl,
         filename: origName,
         caption: caption || undefined,
+        replyToWaMessageId,
       });
     }
 
@@ -377,6 +384,7 @@ export async function POST(request: NextRequest) {
           original_mime: originalMime || null,
           filename: origName,
           caption: caption || null,
+          ...(replyToWaMessageId ? { reply_to_wa_message_id: replyToWaMessageId } : {}),
         },
       } as Record<string, unknown>,
     });
