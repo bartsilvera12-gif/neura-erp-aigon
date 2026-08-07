@@ -282,6 +282,34 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   }, [messages.length, optimistic.length]);
 
   /**
+   * Al abrir el chat (o cambiar de conversación), marcar como leído en Meta →
+   * el cliente ve el doble check azul. Ignoramos errores: si Meta rechaza, la
+   * UI sigue funcionando; no bloqueamos nada.
+   */
+  useEffect(() => {
+    if (!conversationId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetchWithSupabaseSession("/api/chat/mark-read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversation_id: conversationId }),
+        });
+        if (!cancelled) {
+          // Refrescar el inbox global para que el badge de no leídos baje a 0.
+          // No refrescamos messages porque no cambia el contenido, solo el estado.
+        }
+      } catch {
+        /* silent — el chat funciona igual sin el check azul */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
+
+  /**
    * Envío de texto con Optimistic UI.
    * - El mensaje aparece INMEDIATO en el chat con un ícono de reloj.
    * - El textarea se limpia al toque, para no bloquear al agente que escribe rápido.

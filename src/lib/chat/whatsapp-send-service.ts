@@ -307,6 +307,29 @@ export async function sendWhatsAppSticker(
   });
 }
 
+export type SendWhatsAppMarkAsReadParams = {
+  phoneNumberId: string;
+  accessToken: string;
+  /** wa_message_id del mensaje entrante del cliente que se marca como leído. */
+  messageId: string;
+  graphVersion?: string;
+};
+
+/**
+ * Marca un mensaje entrante como leído (activa el doble check azul del lado del cliente).
+ * Meta: marcar UNO como leído implícitamente marca todos los previos de la conversación.
+ * https://developers.facebook.com/docs/whatsapp/cloud-api/guides/mark-message-as-read
+ */
+export async function sendWhatsAppMarkAsRead(
+  params: SendWhatsAppMarkAsReadParams
+): Promise<SendWhatsAppTextResult> {
+  return sendWhatsAppPayload(params, {
+    messaging_product: "whatsapp",
+    status: "read",
+    message_id: params.messageId,
+  });
+}
+
 export type SendWhatsAppVideoParams = {
   toDigits: string;
   phoneNumberId: string;
