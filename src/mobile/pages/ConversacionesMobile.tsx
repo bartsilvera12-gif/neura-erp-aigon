@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Camera, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, Check, CheckCheck, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
 import { EMOJI_CATEGORIES } from "@/mobile/data/emojis";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
@@ -45,6 +45,8 @@ type OptimisticMessage = {
   errorMessage?: string;
   /** Función para reintentar el envío en caso de failed. */
   retry?: () => void;
+  /** Mensaje al que este optimista responde — se muestra como cita mientras sube. */
+  quoted?: MobileChatMessage;
 };
 
 function makeOptimisticId(): string {
@@ -358,14 +360,14 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
    * - Si el envío falla, el globo queda marcado con borde rojo y un botón "Reintentar".
    */
   const doSendText = useCallback(
-    async (raw: string, replyTo?: string) => {
+    async (raw: string, replyTo?: string, quoted?: MobileChatMessage) => {
       const t = raw.trim();
       if (!t) return;
       const optId = makeOptimisticId();
       const nowIso = new Date().toISOString();
       setOptimistic((prev) => [
         ...prev,
-        { id: optId, createdAt: nowIso, type: "text", content: t, status: "sending" },
+        { id: optId, createdAt: nowIso, type: "text", content: t, status: "sending", quoted },
       ]);
       const res = await sendMobileMessage({ conversationId, text: t, replyTo });
       if (!res.ok) {
@@ -378,7 +380,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                   errorMessage: res.error ?? "No se pudo enviar",
                   retry: () => {
                     setOptimistic((p) => p.filter((x) => x.id !== optId));
-                    void doSendText(t, replyTo);
+                    void doSendText(t, replyTo, quoted);
                   },
                 }
               : m
@@ -398,8 +400,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     setError(null);
     setText(""); // limpiar al toque
     const replyTo = replyingTo?.wa_message_id ?? undefined;
+    const quoted = replyingTo ?? undefined;
     setReplyingTo(null); // limpiar la cita al enviar
-    await doSendText(t, replyTo);
+    await doSendText(t, replyTo, quoted);
   }, [text, doSendText, replyingTo]);
 
   /** Progreso de envío múltiple: mostramos "Enviando 2/5…" en el composer. */
@@ -481,6 +484,12 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     const list = pendingFiles ?? [];
     if (list.length === 0) return;
 
+    // La cita del reply-to se aplica SOLO al primer archivo (como hace WhatsApp)
+    // y después se limpia para que los subsiguientes vayan como mensajes normales.
+    const replyTo = replyingTo?.wa_message_id ?? undefined;
+    const quoted = replyingTo ?? undefined;
+    setReplyingTo(null);
+
     // Cerrar el modal ANTES de arrancar para que el usuario vea el chat con los optimistics.
     const entries = list.map((e, i) => {
       const optType = optimisticTypeForFile(e.file);
@@ -493,15 +502,12 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           content: e.file.name,
           previewUrl: e.previewUrl ?? undefined,
           status: "sending" as const,
+          quoted: i === 0 ? quoted : undefined,
         },
       };
     });
     setOptimistic((prev) => [...prev, ...entries.map((e) => e.opt)]);
     setPendingFiles(null); // NO revocamos los blob URLs — los pasamos al optimistic
-    // La cita del reply-to se aplica SOLO al primer archivo (como hace WhatsApp)
-    // y después se limpia para que los subsiguientes vayan como mensajes normales.
-    const replyTo = replyingTo?.wa_message_id ?? undefined;
-    setReplyingTo(null);
 
     const errors: string[] = [];
     for (let i = 0; i < entries.length; i++) {
@@ -560,6 +566,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       const file = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
       const previewUrl = URL.createObjectURL(blob);
       const optId = makeOptimisticId();
+      const replyTo = replyingTo?.wa_message_id ?? undefined;
+      const quoted = replyingTo ?? undefined;
+      setReplyingTo(null);
       setOptimistic((prev) => [
         ...prev,
         {
@@ -569,10 +578,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           content: "Nota de voz",
           previewUrl,
           status: "sending",
+          quoted,
         },
       ]);
-      const replyTo = replyingTo?.wa_message_id ?? undefined;
-      setReplyingTo(null);
       const res = await sendMobileMediaFile({ conversationId, file, replyTo });
       if (!res.ok) {
         setOptimistic((prev) =>
@@ -1144,6 +1152,8 @@ function MessageBubble({
     longPressStartRef.current = { x: ev.clientX, y: ev.clientY };
     longPressTimerRef.current = window.setTimeout(() => {
       longPressFiredRef.current = true;
+      // Vibración corta como feedback táctil — Android soporta navigator.vibrate.
+      try { navigator.vibrate?.(30); } catch { /* noop */ }
       onLongPress();
     }, 500);
   };
@@ -1246,14 +1256,22 @@ function MessageBubble({
         ) : null}
         {!isSticker ? (
           <p
-            className={`mt-0.5 text-right text-[10px] tabular-nums ${
+            className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] tabular-nums ${
               fromMe ? "text-white/70" : "text-slate-400"
             }`}
           >
-            {ts}
+            <span>{ts}</span>
+            {fromMe ? (
+              <DeliveryStatusIcon status={message.whatsapp_delivery_status ?? null} />
+            ) : null}
           </p>
         ) : (
-          <p className="mt-0.5 pl-1 text-[10px] tabular-nums text-slate-400">{ts}</p>
+          <p className="mt-0.5 flex items-center gap-1 pl-1 text-[10px] tabular-nums text-slate-400">
+            <span>{ts}</span>
+            {fromMe ? (
+              <DeliveryStatusIcon status={message.whatsapp_delivery_status ?? null} />
+            ) : null}
+          </p>
         )}
       </div>
     </li>
@@ -1306,6 +1324,31 @@ function formatRelative(iso: string): string {
   if (diffH < 24) return `${diffH}h`;
   const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString("es-PY", sameYear ? { day: "2-digit", month: "short" } : { day: "2-digit", month: "short", year: "2-digit" });
+}
+
+/**
+ * Palomitas estilo WhatsApp para mensajes salientes.
+ *  - pending / null → reloj
+ *  - sent          → un check gris
+ *  - delivered     → doble check gris
+ *  - read          → doble check azul
+ *  - failed        → círculo de alerta rojo
+ */
+function DeliveryStatusIcon({ status }: { status: string | null | undefined }) {
+  const s = (status ?? "").toLowerCase();
+  if (s === "read") {
+    return <CheckCheck className="h-3 w-3 text-sky-300" aria-label="Leído" />;
+  }
+  if (s === "delivered") {
+    return <CheckCheck className="h-3 w-3 opacity-90" aria-label="Entregado" />;
+  }
+  if (s === "sent") {
+    return <Check className="h-3 w-3 opacity-90" aria-label="Enviado" />;
+  }
+  if (s === "failed") {
+    return <AlertCircle className="h-3 w-3 text-red-300" aria-label="No entregado" />;
+  }
+  return <Clock className="h-3 w-3 opacity-70" aria-label="Pendiente" />;
 }
 
 /** Texto corto para representar un mensaje citado (bloque arriba del contenido). */
@@ -1475,6 +1518,14 @@ function OptimisticBubble({ opt }: { opt: OptimisticMessage }) {
             : "rounded-br-sm bg-[#0EA5E9] text-white"
         } ${isSticker ? "" : "px-3 py-2"} ${failed ? "opacity-95 ring-2 ring-red-400" : "opacity-70"}`}
       >
+        {opt.quoted && !isSticker ? (
+          <div className="mb-1.5 rounded-lg border-l-4 border-white/60 bg-white/15 px-2 py-1 text-[11px] text-white/90">
+            <p className="truncate font-medium">
+              {opt.quoted.from_me ? "Vos" : "Cliente"}
+            </p>
+            <p className="line-clamp-2 opacity-90">{previewForQuoted(opt.quoted)}</p>
+          </div>
+        ) : null}
         {isImage ? (
           <img
             src={opt.previewUrl}

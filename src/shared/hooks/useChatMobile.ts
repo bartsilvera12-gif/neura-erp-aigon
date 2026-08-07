@@ -24,6 +24,11 @@ export type MobileChatMessage = {
   created_at: string;
   /** wa_message_id de WhatsApp/Meta — usado para resolver citas (reply-to). */
   wa_message_id?: string | null;
+  /**
+   * Estado de entrega en WhatsApp (viene del webhook de status).
+   * "sent" | "delivered" | "read" | "failed" | null
+   */
+  whatsapp_delivery_status?: string | null;
 };
 
 /** Inbox mobile: hasta 50 conversaciones abiertas/pendientes. */
