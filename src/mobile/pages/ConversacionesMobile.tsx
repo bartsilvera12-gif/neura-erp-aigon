@@ -181,7 +181,7 @@ function InboxList() {
           placeholder="Buscar por nombre, teléfono o mensaje"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#0EA5E9]/40 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30"
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#4FAEB2]/40 focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
         />
       </div>
 
@@ -217,13 +217,13 @@ function ConversationCard({ conv }: { conv: MobileChatConversation }) {
         className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-transform active:scale-[0.99]"
       >
         <div className="relative shrink-0">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0EA5E9]/10 text-base font-bold text-[#0EA5E9]">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#4FAEB2]/10 text-base font-bold text-[#4FAEB2]">
             {inicial}
           </div>
           {unread ? (
             <span
               aria-label={`${conv.unread_count} sin leer`}
-              className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#0EA5E9] px-1 text-[10px] font-bold text-white ring-2 ring-white"
+              className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#4FAEB2] px-1 text-[10px] font-bold text-white ring-2 ring-white"
             >
               {conv.unread_count > 99 ? "99+" : conv.unread_count}
             </span>
@@ -855,9 +855,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       >
         {/* Banner de cita cuando hay un mensaje seleccionado para responder */}
         {replyingTo ? (
-          <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#0EA5E9] bg-[#0EA5E9]/8 px-2 py-1.5 text-[11px] text-slate-700">
+          <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#4FAEB2] bg-[#4FAEB2]/8 px-2 py-1.5 text-[11px] text-slate-700">
             <div className="min-w-0 flex-1">
-              <p className="font-medium text-[#0284C7]">
+              <p className="font-medium text-[#3F8E91]">
                 Respondiendo a {replyingTo.from_me ? "vos mismo" : "el cliente"}
               </p>
               <p className="mt-0.5 line-clamp-2 opacity-90">{previewForQuoted(replyingTo)}</p>
@@ -1027,7 +1027,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             rows={1}
             placeholder={recording ? "Grabando nota de voz…" : "Escribí un mensaje…"}
             disabled={recording}
-            className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-[#0EA5E9]/40 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9]/30 disabled:bg-slate-50"
+            className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-base text-slate-800 placeholder:text-slate-400 focus:border-[#4FAEB2]/40 focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30 disabled:bg-slate-50"
           />
           {text.trim().length > 0 && !recording ? (
             <button
@@ -1035,7 +1035,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
               onClick={() => void send()}
               disabled={sending}
               aria-label="Enviar"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0EA5E9] text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 active:bg-[#0284C7]"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#4FAEB2] text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 active:bg-[#3F8E91]"
             >
               <Send className="h-4 w-4" />
             </button>
@@ -1046,7 +1046,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
               disabled={sending}
               aria-label={recording ? "Detener grabación y enviar" : "Grabar nota de voz"}
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                recording ? "bg-red-500 active:bg-red-600" : "bg-[#0EA5E9] active:bg-[#0284C7]"
+                recording ? "bg-red-500 active:bg-red-600" : "bg-[#4FAEB2] active:bg-[#3F8E91]"
               }`}
             >
               {recording ? <Square className="h-4 w-4" /> : <Mic className="h-5 w-5" />}
@@ -1101,7 +1101,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 }}
                 className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0EA5E9]/10 text-[#0284C7]">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4FAEB2]/10 text-[#3F8E91]">
                   <Reply className="h-4 w-4" />
                 </span>
                 Responder
@@ -1220,7 +1220,7 @@ function MessageBubble({
       {dragX !== 0 ? (
         <span
           aria-hidden
-          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-[#0284C7] ${
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-[#3F8E91] ${
             dragX > 0 ? "left-1" : "right-1"
           }`}
           style={{ opacity: Math.min(1, Math.abs(dragX) / SWIPE_REPLY_TRIGGER) }}
@@ -1238,7 +1238,7 @@ function MessageBubble({
           isSticker
             ? "bg-transparent shadow-none"
             : fromMe
-              ? "rounded-br-sm bg-[#0EA5E9] text-white"
+              ? "rounded-br-sm bg-[#4FAEB2] text-white"
               : "rounded-bl-sm bg-white text-slate-800"
         } ${isSticker ? "" : "px-3 py-2"}`}
       >
@@ -1248,7 +1248,7 @@ function MessageBubble({
             className={`mb-1.5 rounded-lg border-l-4 px-2 py-1 text-[11px] ${
               fromMe
                 ? "border-white/60 bg-white/15 text-white/90"
-                : "border-[#0EA5E9] bg-[#0EA5E9]/8 text-slate-700"
+                : "border-[#4FAEB2] bg-[#4FAEB2]/8 text-slate-700"
             }`}
           >
             <p className="truncate font-medium">
@@ -1529,7 +1529,7 @@ function PendingFilesPreview({
           type="button"
           onClick={onSend}
           disabled={files.length === 0}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0EA5E9] px-4 py-3 text-sm font-semibold text-white active:bg-[#0284C7] disabled:opacity-40"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4FAEB2] px-4 py-3 text-sm font-semibold text-white active:bg-[#3F8E91] disabled:opacity-40"
         >
           <Send className="h-4 w-4" />
           Enviar {files.length > 1 ? `(${files.length})` : ""}
@@ -1563,7 +1563,7 @@ function OptimisticBubble({ opt }: { opt: OptimisticMessage }) {
         className={`relative max-w-[80%] overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
           isSticker
             ? "bg-transparent shadow-none"
-            : "rounded-br-sm bg-[#0EA5E9] text-white"
+            : "rounded-br-sm bg-[#4FAEB2] text-white"
         } ${isSticker ? "" : "px-3 py-2"} ${failed ? "opacity-95 ring-2 ring-red-400" : "opacity-70"}`}
       >
         {opt.quoted && !isSticker ? (
@@ -1698,7 +1698,7 @@ function EmojiStickerDrawer({
               onClick={() => setMode("emojis")}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
                 mode === "emojis"
-                  ? "bg-[#0EA5E9]/10 text-[#0284C7]"
+                  ? "bg-[#4FAEB2]/10 text-[#3F8E91]"
                   : "text-slate-500 hover:bg-slate-50"
               }`}
             >
@@ -1709,7 +1709,7 @@ function EmojiStickerDrawer({
               onClick={() => setMode("stickers")}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
                 mode === "stickers"
-                  ? "bg-[#0EA5E9]/10 text-[#0284C7]"
+                  ? "bg-[#4FAEB2]/10 text-[#3F8E91]"
                   : "text-slate-500 hover:bg-slate-50"
               }`}
             >
@@ -1737,7 +1737,7 @@ function EmojiStickerDrawer({
                   onClick={() => setEmojiCat(i)}
                   aria-label={c.label}
                   className={`shrink-0 rounded-full px-2 py-1 text-lg leading-none ${
-                    i === emojiCat ? "bg-[#0EA5E9]/10" : "hover:bg-slate-50"
+                    i === emojiCat ? "bg-[#4FAEB2]/10" : "hover:bg-slate-50"
                   }`}
                 >
                   {c.icon}
@@ -1786,7 +1786,7 @@ function EmojiStickerDrawer({
                       onClick={() => setPackTab(i)}
                       className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
                         i === packTab
-                          ? "bg-[#0EA5E9] text-white"
+                          ? "bg-[#4FAEB2] text-white"
                           : "bg-slate-100 text-slate-600"
                       }`}
                     >
@@ -1953,7 +1953,7 @@ function SaveStickerModal({
             type="button"
             onClick={() => void handleConfirm()}
             disabled={saving}
-            className="rounded-lg bg-[#0EA5E9] px-4 py-2 text-sm font-semibold text-white active:bg-[#0284C7] disabled:opacity-50"
+            className="rounded-lg bg-[#4FAEB2] px-4 py-2 text-sm font-semibold text-white active:bg-[#3F8E91] disabled:opacity-50"
           >
             {saving ? "Guardando…" : "Guardar"}
           </button>
