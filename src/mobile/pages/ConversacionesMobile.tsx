@@ -104,7 +104,22 @@ export default function ConversacionesMobile() {
   const selectedId = sp.get("id");
 
   if (selectedId) {
-    return <ChatDetail conversationId={selectedId} onBack={() => router.push("/dashboard/conversaciones")} />;
+    return (
+      <ChatDetail
+        conversationId={selectedId}
+        onBack={() => {
+          // router.push a la misma ruta con distinto searchParam a veces NO dispara
+          // re-render en el WebView Android. Usamos history.back cuando hay historial
+          // (caso normal: se entró tocando una conversación desde la lista) y
+          // caemos a replace absoluto cuando no lo hay (caso deep link desde push).
+          if (typeof window !== "undefined" && window.history.length > 1) {
+            router.back();
+          } else {
+            router.replace("/dashboard/conversaciones?apkView=1");
+          }
+        }}
+      />
+    );
   }
   return <InboxList />;
 }
