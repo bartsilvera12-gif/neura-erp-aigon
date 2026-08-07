@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, FileText, ImagePlus, Mic, MessageCircle, Search, Send, Smile, Square, Star, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Clock, FileText, ImagePlus, Mic, MessageCircle, RotateCw, Search, Send, Smile, Square, Star, X } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
   attachmentCaptionForDisplay,
@@ -32,6 +32,24 @@ import {
  *    para la mayoría de los casos en movimiento.
  *  - No asigna ni transfiere conversaciones — eso queda para desktop.
  */
+// ── Optimistic messages ─────────────────────────────────────────────────────
+
+type OptimisticMessage = {
+  id: string; // "opt_<random>"
+  createdAt: string; // ISO
+  type: "text" | "sticker" | "image" | "audio" | "document" | "video";
+  content?: string;
+  previewUrl?: string; // blob: para archivos locales, https: para stickers
+  status: "sending" | "failed";
+  errorMessage?: string;
+  /** Función para reintentar el envío en caso de failed. */
+  retry?: () => void;
+};
+
+function makeOptimisticId(): string {
+  return `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 // ── Tipos + helpers stickers ────────────────────────────────────────────────
 
 type StickerCatalogItem = { id: string; public_url: string; kind: string; orden: number };
@@ -224,35 +242,88 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const [stickerCatalogLoading, setStickerCatalogLoading] = useState(false);
   /** Mensaje de sticker entrante seleccionado para guardar en un paquete. */
   const [saveStickerFor, setSaveStickerFor] = useState<MobileChatMessage | null>(null);
+  /**
+   * Mensajes salientes optimistas: aparecen INMEDIATO al tocar Enviar y se
+   * eliminan cuando mutate() trae la fila real del servidor. Si el envío
+   * falla quedan marcados "failed" con opción de reintentar.
+   */
+  const [optimistic, setOptimistic] = useState<OptimisticMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
 
-  // Auto-scroll al fondo cuando llegan mensajes nuevos.
+  // Auto-scroll al fondo cuando llegan mensajes nuevos (reales u optimistas).
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+  }, [messages.length, optimistic.length]);
+
+  /**
+   * Envío de texto con Optimistic UI.
+   * - El mensaje aparece INMEDIATO en el chat con un ícono de reloj.
+   * - El textarea se limpia al toque, para no bloquear al agente que escribe rápido.
+   * - Si el envío falla, el globo queda marcado con borde rojo y un botón "Reintentar".
+   */
+  const doSendText = useCallback(
+    async (raw: string) => {
+      const t = raw.trim();
+      if (!t) return;
+      const optId = makeOptimisticId();
+      const nowIso = new Date().toISOString();
+      setOptimistic((prev) => [
+        ...prev,
+        { id: optId, createdAt: nowIso, type: "text", content: t, status: "sending" },
+      ]);
+      const res = await sendMobileMessage({ conversationId, text: t });
+      if (!res.ok) {
+        setOptimistic((prev) =>
+          prev.map((m) =>
+            m.id === optId
+              ? {
+                  ...m,
+                  status: "failed",
+                  errorMessage: res.error ?? "No se pudo enviar",
+                  retry: () => {
+                    setOptimistic((p) => p.filter((x) => x.id !== optId));
+                    void doSendText(t);
+                  },
+                }
+              : m
+          )
+        );
+        return;
+      }
+      // Refrescar la lista y quitar el optimistic — el server ya tiene la fila real.
+      await mutate();
+      setOptimistic((prev) => prev.filter((m) => m.id !== optId));
+    },
+    [conversationId, mutate]
+  );
 
   const send = useCallback(async () => {
     const t = text.trim();
-    if (!t || sending) return;
-    setSending(true);
+    if (!t) return;
     setError(null);
-    const res = await sendMobileMessage({ conversationId, text: t });
-    if (!res.ok) {
-      setError(res.error ?? "No se pudo enviar.");
-    } else {
-      setText("");
-      await mutate();
-    }
-    setSending(false);
-  }, [text, sending, conversationId, mutate]);
+    setText(""); // limpiar al toque
+    await doSendText(t);
+  }, [text, doSendText]);
 
   /** Progreso de envío múltiple: mostramos "Enviando 2/5…" en el composer. */
   const [uploadQueue, setUploadQueue] = useState<{ current: number; total: number } | null>(null);
+
+  /**
+   * Devuelve el tipo optimista según el mime del File. Para el preview usamos
+   * un blob URL local, así el globo aparece con la miniatura al instante.
+   */
+  function optimisticTypeForFile(f: File): OptimisticMessage["type"] {
+    const m = (f.type || "").toLowerCase();
+    if (m.startsWith("image/")) return "image";
+    if (m.startsWith("video/")) return "video";
+    if (m.startsWith("audio/")) return "audio";
+    return "document";
+  }
 
   /** Manejador del input file: sube 1..N fotos / documentos vía /api/chat/send-media secuencial. */
   const onPickFile = useCallback(
@@ -274,49 +345,104 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         return;
       }
 
-      setSending(true);
       setError(null);
+
+      // Crear optimistics AL TOQUE para todos los archivos — cada uno aparece
+      // en el chat con miniatura antes de arrancar la subida.
+      const nowMs = Date.now();
+      const entries = files.map((f, i) => {
+        const optType = optimisticTypeForFile(f);
+        return {
+          file: f,
+          opt: {
+            id: makeOptimisticId(),
+            createdAt: new Date(nowMs + i).toISOString(),
+            type: optType,
+            content: f.name,
+            previewUrl: optType === "image" ? URL.createObjectURL(f) : undefined,
+            status: "sending" as const,
+          },
+        };
+      });
+      setOptimistic((prev) => [...prev, ...entries.map((e) => e.opt)]);
+
       const errors: string[] = [];
 
-      // Secuencial: WhatsApp preserva el orden de entrega si mandamos uno a uno.
-      // Paralelo llegaría más rápido pero mezclaría el orden de los mensajes.
-      for (let i = 0; i < files.length; i++) {
-        setUploadQueue({ current: i + 1, total: files.length });
-        const res = await sendMobileMediaFile({ conversationId, file: files[i] });
+      // Secuencial: WhatsApp preserva el orden si mandamos uno a uno.
+      for (let i = 0; i < entries.length; i++) {
+        setUploadQueue({ current: i + 1, total: entries.length });
+        const { file, opt } = entries[i];
+        const res = await sendMobileMediaFile({ conversationId, file });
         if (!res.ok) {
-          errors.push(`${files[i].name}: ${res.error ?? "error"}`);
+          errors.push(`${file.name}: ${res.error ?? "error"}`);
+          setOptimistic((prev) =>
+            prev.map((m) =>
+              m.id === opt.id
+                ? {
+                    ...m,
+                    status: "failed",
+                    errorMessage: res.error ?? "No se pudo enviar",
+                  }
+                : m
+            )
+          );
         }
       }
 
       setUploadQueue(null);
-      if (errors.length > 0) {
-        setError(
-          errors.length === files.length
-            ? "No se pudo enviar ningún archivo."
-            : `Fallaron ${errors.length}/${files.length}: ${errors[0]}`
-        );
+      if (errors.length > 0 && errors.length === files.length) {
+        setError("No se pudo enviar ningún archivo.");
+      } else if (errors.length > 0) {
+        setError(`Fallaron ${errors.length}/${files.length}: ${errors[0]}`);
       }
       await mutate();
-      setSending(false);
+      // Liberar blob URLs y limpiar optimistics de los que salieron bien.
+      const okIds = new Set(entries.filter((e) => !errors.some((err) => err.startsWith(e.file.name + ":"))).map((e) => e.opt.id));
+      for (const e of entries) {
+        if (e.opt.previewUrl && okIds.has(e.opt.id)) {
+          try { URL.revokeObjectURL(e.opt.previewUrl); } catch { /* noop */ }
+        }
+      }
+      setOptimistic((prev) => prev.filter((m) => !okIds.has(m.id)));
     },
     [conversationId, mutate]
   );
 
-  /** Envía el blob grabado por el MediaRecorder a /api/chat/send-media como audio. */
+  /** Envía el blob grabado por el MediaRecorder a /api/chat/send-media como audio (optimistic). */
   const uploadVoiceBlob = useCallback(
     async (blob: Blob) => {
       if (blob.size < 300) return; // recortes accidentales de <300 bytes
-      setSending(true);
       setError(null);
       const ext = blob.type.includes("ogg") ? "ogg" : "webm";
       const file = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
+      const previewUrl = URL.createObjectURL(blob);
+      const optId = makeOptimisticId();
+      setOptimistic((prev) => [
+        ...prev,
+        {
+          id: optId,
+          createdAt: new Date().toISOString(),
+          type: "audio",
+          content: "Nota de voz",
+          previewUrl,
+          status: "sending",
+        },
+      ]);
       const res = await sendMobileMediaFile({ conversationId, file });
       if (!res.ok) {
+        setOptimistic((prev) =>
+          prev.map((m) =>
+            m.id === optId
+              ? { ...m, status: "failed", errorMessage: res.error ?? "No se pudo enviar" }
+              : m
+          )
+        );
         setError(res.error ?? "No se pudo enviar el audio.");
-      } else {
-        await mutate();
+        return;
       }
-      setSending(false);
+      await mutate();
+      try { URL.revokeObjectURL(previewUrl); } catch { /* noop */ }
+      setOptimistic((prev) => prev.filter((m) => m.id !== optId));
     },
     [conversationId, mutate]
   );
@@ -416,18 +542,43 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     }
   }, [stickerCatalog]);
 
+  /** Envío de sticker con Optimistic UI (mismo patrón que texto/media). */
   const onSelectStickerToSend = useCallback(
-    async (stickerId: string) => {
-      setSending(true);
+    async (stickerId: string, previewUrl: string) => {
       setError(null);
+      setStickerPickerOpen(false);
+      const optId = makeOptimisticId();
+      setOptimistic((prev) => [
+        ...prev,
+        {
+          id: optId,
+          createdAt: new Date().toISOString(),
+          type: "sticker",
+          previewUrl,
+          status: "sending",
+        },
+      ]);
       try {
         await sendStickerRequest(conversationId, stickerId);
-        setStickerPickerOpen(false);
         await mutate();
+        setOptimistic((prev) => prev.filter((m) => m.id !== optId));
       } catch (e) {
-        setError(e instanceof Error ? e.message : "No se pudo enviar el sticker");
-      } finally {
-        setSending(false);
+        const msg = e instanceof Error ? e.message : "No se pudo enviar";
+        setOptimistic((prev) =>
+          prev.map((m) =>
+            m.id === optId
+              ? {
+                  ...m,
+                  status: "failed",
+                  errorMessage: msg,
+                  retry: () => {
+                    setOptimistic((p) => p.filter((x) => x.id !== optId));
+                    void onSelectStickerToSend(stickerId, previewUrl);
+                  },
+                }
+              : m
+          )
+        );
       }
     },
     [conversationId, mutate]
@@ -483,7 +634,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
               </div>
             ))}
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && optimistic.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-slate-400">Sin mensajes todavía</p>
           </div>
@@ -495,6 +646,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 message={m}
                 onSaveIncomingSticker={() => setSaveStickerFor(m)}
               />
+            ))}
+            {optimistic.map((m) => (
+              <OptimisticBubble key={m.id} opt={m} />
             ))}
           </ul>
         )}
@@ -780,6 +934,93 @@ function formatHora(iso: string): string {
 
 // ── Drawer picker de stickers ───────────────────────────────────────────────
 
+// ── Bubble optimista (mientras se envía) ────────────────────────────────────
+
+function OptimisticBubble({ opt }: { opt: OptimisticMessage }) {
+  const ts = formatHora(opt.createdAt);
+  const isSticker = opt.type === "sticker";
+  const isImage = opt.type === "image" && opt.previewUrl;
+  const isAudio = opt.type === "audio" && opt.previewUrl;
+  const isDocument = opt.type === "document";
+  const isText = opt.type === "text";
+  const failed = opt.status === "failed";
+
+  return (
+    <li className="flex justify-end">
+      <div
+        className={`relative max-w-[80%] overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
+          isSticker
+            ? "bg-transparent shadow-none"
+            : "rounded-br-sm bg-[#0EA5E9] text-white"
+        } ${isSticker ? "" : "px-3 py-2"} ${failed ? "opacity-95 ring-2 ring-red-400" : "opacity-70"}`}
+      >
+        {isImage ? (
+          <img
+            src={opt.previewUrl}
+            alt="imagen"
+            className="max-h-[60vh] w-full rounded-xl object-cover"
+          />
+        ) : isSticker ? (
+          <img
+            src={opt.previewUrl}
+            alt="sticker"
+            className="h-32 w-32 object-contain"
+          />
+        ) : isAudio ? (
+          <audio
+            src={opt.previewUrl}
+            controls
+            preload="metadata"
+            className="block w-[240px] max-w-full sm:w-[280px]"
+          />
+        ) : isDocument ? (
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate">{opt.content ?? "Documento"}</span>
+          </div>
+        ) : isText ? (
+          <p className="whitespace-pre-wrap break-words">{opt.content}</p>
+        ) : (
+          <p className="italic opacity-90">Enviando…</p>
+        )}
+
+        <div
+          className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] tabular-nums ${
+            isSticker ? "pl-1 text-slate-400" : "text-white/80"
+          }`}
+        >
+          {failed ? (
+            <>
+              <AlertCircle className="h-3 w-3 text-red-100" />
+              <span>No se envió</span>
+              {opt.retry ? (
+                <button
+                  type="button"
+                  onClick={opt.retry}
+                  className="ml-1 inline-flex items-center gap-0.5 rounded px-1 text-white underline"
+                  aria-label="Reintentar envío"
+                >
+                  <RotateCw className="h-3 w-3" />
+                  Reintentar
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Clock className="h-3 w-3" />
+              <span>{ts}</span>
+            </>
+          )}
+        </div>
+
+        {failed && opt.errorMessage ? (
+          <p className="mt-1 text-[10px] text-red-100">{opt.errorMessage}</p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
 function StickerPickerDrawer({
   packs,
   loading,
@@ -791,7 +1032,7 @@ function StickerPickerDrawer({
   loading: boolean;
   disabled: boolean;
   onClose: () => void;
-  onSelect: (stickerId: string) => void;
+  onSelect: (stickerId: string, previewUrl: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState(0);
   useEffect(() => {
@@ -861,7 +1102,7 @@ function StickerPickerDrawer({
                       key={s.id}
                       type="button"
                       disabled={disabled}
-                      onClick={() => onSelect(s.id)}
+                      onClick={() => onSelect(s.id, s.public_url)}
                       className="flex aspect-square items-center justify-center rounded-lg bg-slate-50 p-1 transition-transform active:scale-95 disabled:opacity-40"
                     >
                       <img
