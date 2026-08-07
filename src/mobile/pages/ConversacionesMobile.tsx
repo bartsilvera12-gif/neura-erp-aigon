@@ -2,7 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Camera, Check, CheckCheck, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
+// OJO: el ícono `File` va aliasado. Importarlo con su nombre tapa el constructor global
+// `File` del browser y `new File([blob], …)` de la nota de voz devuelve un componente en
+// vez de un archivo → el audio se subía vacío y WhatsApp nunca lo recibía.
+import { AlertCircle, ArrowLeft, Camera, Clock, File as FileIcon, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
 import { EMOJI_CATEGORIES } from "@/mobile/data/emojis";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
@@ -19,6 +22,8 @@ import {
   type MobileChatConversation,
   type MobileChatMessage,
 } from "@/shared/hooks/useChatMobile";
+import { DeliveryStatusIcon } from "@/components/chat/DeliveryStatusIcon";
+import { extensionForMime, micErrorMessage, pickRecordingMime } from "@/lib/chat/voice-recording";
 
 /**
  * Conversaciones mobile — vista funcional.
@@ -326,32 +331,34 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   }
 
   /**
-   * Al abrir el chat (o cambiar de conversación), marcar como leído en Meta →
-   * el cliente ve el doble check azul. Ignoramos errores: si Meta rechaza, la
-   * UI sigue funcionando; no bloqueamos nada.
+   * Marcar como leído en Meta → el cliente ve el doble check azul.
+   *
+   * Se dispara al abrir el chat Y cada vez que entra un mensaje nuevo del cliente con
+   * el chat abierto (antes solo al abrir: lo que llegaba después quedaba sin visto).
+   * Una sola llamada por último entrante, no en cada poll. Ignoramos errores: si Meta
+   * rechaza, la UI sigue funcionando.
    */
+  const lastInboundId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (!messages[i].from_me) return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+
   useEffect(() => {
-    if (!conversationId) return;
-    let cancelled = false;
-    (async () => {
+    if (!conversationId || !lastInboundId) return;
+    void (async () => {
       try {
         await fetchWithSupabaseSession("/api/chat/mark-read", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ conversation_id: conversationId }),
         });
-        if (!cancelled) {
-          // Refrescar el inbox global para que el badge de no leídos baje a 0.
-          // No refrescamos messages porque no cambia el contenido, solo el estado.
-        }
       } catch {
         /* silent — el chat funciona igual sin el check azul */
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId]);
+  }, [conversationId, lastInboundId]);
 
   /**
    * Envío de texto con Optimistic UI.
@@ -562,8 +569,8 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         return;
       }
       setError(null);
-      const ext = blob.type.includes("ogg") ? "ogg" : "webm";
-      const file = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
+      const blobType = blob.type || "audio/webm";
+      const file = new File([blob], `nota-voz.${extensionForMime(blobType)}`, { type: blobType });
       const previewUrl = URL.createObjectURL(blob);
       const optId = makeOptimisticId();
       const replyTo = replyingTo?.wa_message_id ?? undefined;
@@ -608,29 +615,43 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       return;
     }
     setError(null);
+
+    // WebView sin contexto seguro o sin soporte: mensaje claro en vez de un throw genérico.
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Este dispositivo no habilita el micrófono en la app. Actualizá Android System WebView.");
+      return;
+    }
+    if (typeof MediaRecorder === "undefined") {
+      setError("Este dispositivo no soporta grabar audio en la app.");
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       recordChunksRef.current = [];
-      const mime =
-        typeof MediaRecorder !== "undefined" &&
-        MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
-            ? "audio/webm"
-            : "";
-      const mr = mime
-        ? new MediaRecorder(stream, { mimeType: mime })
-        : new MediaRecorder(stream);
+      // mp4/AAC si el WebView lo soporta: WhatsApp lo acepta tal cual y no hace falta
+      // transcodear con ffmpeg en el server. webm queda como último recurso.
+      const mime = pickRecordingMime();
+      let mr: MediaRecorder;
+      try {
+        mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch {
+        // Algunos WebViews declaran soportar un mime y después rechazan el constructor.
+        mr = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = mr;
       mr.ondataavailable = (ev) => {
         if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      };
+      mr.onerror = () => {
+        setError("Se cortó la grabación. Probá de nuevo.");
       };
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         mediaRecorderRef.current = null;
         streamRef.current = null;
-        const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || "audio/webm" });
+        const blob = new Blob(recordChunksRef.current, { type: mr.mimeType || mime || "audio/webm" });
         recordChunksRef.current = [];
         setRecording(false);
         setRecordingSince(null);
@@ -640,11 +661,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       setRecordingSince(Date.now());
       mr.start(400);
     } catch (e) {
-      setError(
-        e instanceof Error && e.message
-          ? `No se pudo acceder al micrófono: ${e.message}`
-          : "No se pudo acceder al micrófono. Otorgá el permiso en la configuración del sistema."
-      );
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setError(micErrorMessage(e));
       setRecording(false);
       setRecordingSince(null);
     }
@@ -951,7 +970,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
               >
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sky-600">
-                  <File className="h-4 w-4" />
+                  <FileIcon className="h-4 w-4" />
                 </span>
                 Documento
               </button>
@@ -1324,31 +1343,6 @@ function formatRelative(iso: string): string {
   if (diffH < 24) return `${diffH}h`;
   const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString("es-PY", sameYear ? { day: "2-digit", month: "short" } : { day: "2-digit", month: "short", year: "2-digit" });
-}
-
-/**
- * Palomitas estilo WhatsApp para mensajes salientes.
- *  - pending / null → reloj
- *  - sent          → un check gris
- *  - delivered     → doble check gris
- *  - read          → doble check azul
- *  - failed        → círculo de alerta rojo
- */
-function DeliveryStatusIcon({ status }: { status: string | null | undefined }) {
-  const s = (status ?? "").toLowerCase();
-  if (s === "read") {
-    return <CheckCheck className="h-3 w-3 text-sky-300" aria-label="Leído" />;
-  }
-  if (s === "delivered") {
-    return <CheckCheck className="h-3 w-3 opacity-90" aria-label="Entregado" />;
-  }
-  if (s === "sent") {
-    return <Check className="h-3 w-3 opacity-90" aria-label="Enviado" />;
-  }
-  if (s === "failed") {
-    return <AlertCircle className="h-3 w-3 text-red-300" aria-label="No entregado" />;
-  }
-  return <Clock className="h-3 w-3 opacity-70" aria-label="Pendiente" />;
 }
 
 /** Texto corto para representar un mensaje citado (bloque arriba del contenido). */

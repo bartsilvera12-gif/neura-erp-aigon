@@ -70,6 +70,8 @@ import type { OmnicanalOperatorRole } from "@/lib/chat/omnicanal-supervision-rea
 import { playInboxNotificationBeep, readInboxNotificationSoundEnabled } from "@/lib/chat/inbox-notification-preference";
 import { createBrowserClientForSchema } from "@/lib/supabase";
 import { ChannelBadge } from "@/components/chat/ChannelBadge";
+import { DeliveryStatusIcon } from "@/components/chat/DeliveryStatusIcon";
+import { extensionForMime, micErrorMessage, pickRecordingMime } from "@/lib/chat/voice-recording";
 
 type ChatMessage = {
   id: string;
@@ -895,13 +897,14 @@ export function ConversacionesClient({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       recordChunksRef.current = [];
-      const mime =
-        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
-            ? "audio/webm"
-            : "";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      // mp4/AAC si el browser lo soporta: WhatsApp lo acepta tal cual, sin pasar por ffmpeg.
+      const mime = pickRecordingMime();
+      let rec: MediaRecorder;
+      try {
+        rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch {
+        rec = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = rec;
       rec.ondataavailable = (ev) => {
         if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
@@ -910,18 +913,23 @@ export function ConversacionesClient({
         stream.getTracks().forEach((t) => t.stop());
         mediaRecorderRef.current = null;
         streamRef.current = null;
-        const blob = new Blob(recordChunksRef.current, { type: rec.mimeType || "audio/webm" });
+        const blob = new Blob(recordChunksRef.current, { type: rec.mimeType || mime || "audio/webm" });
         recordChunksRef.current = [];
         setRecordingVoice(false);
-        if (blob.size < 300) return;
-        const ext = blob.type.includes("ogg") ? "ogg" : "webm";
-        const voiceFile = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
+        if (blob.size < 300) {
+          setSendError("La grabación quedó vacía. Mantené el micrófono abierto al menos 1 segundo.");
+          return;
+        }
+        const type = blob.type || "audio/webm";
+        const voiceFile = new File([blob], `nota-voz.${extensionForMime(type)}`, { type });
         void sendMediaFile(voiceFile);
       };
       setRecordingVoice(true);
       rec.start(400);
     } catch (e) {
-      setSendError(e instanceof Error ? e.message : "No se pudo acceder al micrófono");
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setSendError(micErrorMessage(e));
       setRecordingVoice(false);
     }
   }
@@ -3583,12 +3591,19 @@ export function ConversacionesClient({
                           ) : (
                             <p className="whitespace-pre-wrap break-words">{m.content}</p>
                           )}
-                          <p
-                            className={`text-[10px] mt-1 ${m.from_me ? "text-sky-100" : "text-slate-400"}`}
+                          <div
+                            className={`text-[10px] mt-1 flex items-center gap-1 ${
+                              m.from_me ? "justify-end text-sky-100" : "text-slate-400"
+                            }`}
                           >
-                            {formatTime(m.created_at)}
-                            {m.message_type !== "text" && ` · ${m.message_type}`}
-                          </p>
+                            <span>
+                              {formatTime(m.created_at)}
+                              {m.message_type !== "text" && ` · ${m.message_type}`}
+                            </span>
+                            {m.from_me ? (
+                              <DeliveryStatusIcon status={m.whatsapp_delivery_status} />
+                            ) : null}
+                          </div>
                           {m.from_me && m.whatsapp_delivery_status === "failed" ? (
                             <div className="mt-1 rounded-md bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700 flex items-start gap-1">
                               <span aria-hidden>⚠</span>

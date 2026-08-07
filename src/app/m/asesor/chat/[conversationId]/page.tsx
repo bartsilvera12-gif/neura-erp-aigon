@@ -8,6 +8,13 @@ import {
   getWhatsAppMediaUrlFromRawPayload,
 } from "@/lib/chat/message-erp-display";
 import { friendlyWhatsappFailureReason, extractWhatsappFailureInfo } from "@/lib/chat/whatsapp-failure-reason";
+import { DeliveryStatusIcon } from "@/components/chat/DeliveryStatusIcon";
+import {
+  canRecordAudio,
+  extensionForMime,
+  micErrorMessage,
+  pickRecordingMime,
+} from "@/lib/chat/voice-recording";
 import {
   extractBodyPlaceholderKeysOrdered,
   getBodyComponentText,
@@ -95,6 +102,13 @@ function mediaUrl(m: Msg): string | null {
 
 function fmtSecs(s: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function fmtHora(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function MessageBody({ m }: { m: Msg }) {
@@ -250,6 +264,28 @@ export default function MAsesorChatPage() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, pending]);
 
+  // Marcar como leído en WhatsApp → al cliente le quedan las tildes azules en SUS mensajes.
+  // Una llamada por último entrante (no en cada poll de 12 s). Falla suave.
+  const lastReadRef = useRef<string | null>(null);
+  useEffect(() => {
+    let lastInboundId: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (!messages[i].from_me) {
+        lastInboundId = messages[i].id;
+        break;
+      }
+    }
+    if (!lastInboundId || lastReadRef.current === lastInboundId) return;
+    lastReadRef.current = lastInboundId;
+    void fetchWithSupabaseSession("/api/chat/mark-read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId }),
+    }).catch(() => {
+      /* silent */
+    });
+  }, [conversationId, messages]);
+
   // Autogrow del textarea (multilínea sin romper el layout).
   useEffect(() => {
     const el = taRef.current;
@@ -260,11 +296,7 @@ export default function MAsesorChatPage() {
 
   // Detección de soporte de grabación (client-only, evita mostrar un botón inútil).
   useEffect(() => {
-    setMicSupported(
-      typeof navigator !== "undefined" &&
-        !!navigator.mediaDevices?.getUserMedia &&
-        typeof MediaRecorder !== "undefined"
-    );
+    setMicSupported(canRecordAudio());
   }, []);
 
   // Limpieza: cortar grabación/stream/timer al desmontar.
@@ -404,13 +436,14 @@ export default function MAsesorChatPage() {
       streamRef.current = stream;
       chunksRef.current = [];
       cancelRecRef.current = false;
-      const mime =
-        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
-            ? "audio/webm"
-            : "";
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      // mp4/AAC si el WebView lo soporta: WhatsApp lo acepta tal cual, sin transcodear.
+      const mime = pickRecordingMime();
+      let rec: MediaRecorder;
+      try {
+        rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      } catch {
+        rec = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = rec;
       rec.ondataavailable = (ev) => {
         if (ev.data.size > 0) chunksRef.current.push(ev.data);
@@ -425,19 +458,25 @@ export default function MAsesorChatPage() {
         }
         setRecording(false);
         setRecSecs(0);
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || mime || "audio/webm" });
         chunksRef.current = [];
-        if (cancelRecRef.current || blob.size < 300) return;
-        const ext = blob.type.includes("ogg") ? "ogg" : "webm";
-        const file = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
+        if (cancelRecRef.current) return;
+        if (blob.size < 300) {
+          setSendErr("La grabación quedó vacía. Mantené el micrófono abierto al menos 1 segundo.");
+          return;
+        }
+        const type = blob.type || "audio/webm";
+        const file = new File([blob], `nota-voz.${extensionForMime(type)}`, { type });
         sendAudio(file);
       };
       setRecording(true);
       setRecSecs(0);
       recTimerRef.current = window.setInterval(() => setRecSecs((s) => s + 1), 1000);
       rec.start(400);
-    } catch {
-      setSendErr("No se pudo acceder al micrófono");
+    } catch (e) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setSendErr(micErrorMessage(e));
       setRecording(false);
     }
   }, [sendAudio]);
@@ -566,6 +605,14 @@ export default function MAsesorChatPage() {
                   }`}
                 >
                   <MessageBody m={m} />
+                  <div
+                    className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] tabular-nums ${
+                      m.from_me ? "text-white/75" : "text-slate-400"
+                    }`}
+                  >
+                    <span>{fmtHora(m.created_at)}</span>
+                    {m.from_me ? <DeliveryStatusIcon status={m.whatsapp_delivery_status} /> : null}
+                  </div>
                   {m.from_me && m.whatsapp_delivery_status === "failed" ? (
                     <div className="mt-1 rounded-md bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700 flex items-start gap-1">
                       <span aria-hidden>⚠</span>

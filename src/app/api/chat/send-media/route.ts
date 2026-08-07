@@ -194,10 +194,17 @@ export async function POST(request: NextRequest) {
       try {
         buf = await transcodeAudioToMp3(buf);
       } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        // ffmpeg ausente en el deploy (ENOENT) → mensaje accionable, no un 500 opaco.
+        const missingFfmpeg = /ENOENT|not found|no such file/i.test(detail);
+        console.error("[api/chat/send-media] transcode_failed", { missingFfmpeg, detail });
         return NextResponse.json(
           {
             ok: false,
-            error: "No se pudo convertir el audio a MP3 (ffmpeg): " + (e instanceof Error ? e.message : String(e)),
+            code: missingFfmpeg ? "audio_transcode_unavailable" : "audio_transcode_failed",
+            error: missingFfmpeg
+              ? "El servidor no tiene ffmpeg, así que no puede convertir la nota de voz a un formato que acepte WhatsApp. Avisá a soporte técnico (falta ffmpeg en el deploy)."
+              : "No se pudo convertir el audio para enviarlo por WhatsApp: " + detail,
           },
           { status: 500 }
         );
