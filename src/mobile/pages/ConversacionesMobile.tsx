@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, RotateCw, Search, Send, Smile, Square, Star, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, Clock, File, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
 import { EMOJI_CATEGORIES } from "@/mobile/data/emojis";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
@@ -259,8 +259,18 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   /** Input file para documento (PDF, office, etc.). Separado del de fotos para que
    *  Android abra el file browser de docs en vez del picker de galería. */
   const docInputRef = useRef<HTMLInputElement>(null);
-  /** Menú desplegable "Foto / Documento" del botón de adjuntar. */
+  /** Cámara nativa modo foto (capture="environment"). */
+  const cameraPhotoRef = useRef<HTMLInputElement>(null);
+  /** Cámara nativa modo video (capture="environment" + accept video). */
+  const cameraVideoRef = useRef<HTMLInputElement>(null);
+  /** Menú desplegable con Foto/Video/Cámara foto/Cámara video/Documento. */
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  /**
+   * Archivos seleccionados en el picker que esperan confirmación antes de enviarse.
+   * El usuario puede quitar algunos con la X o cancelar todo antes de mandar.
+   * `null` = no hay preview abierto.
+   */
+  const [pendingFiles, setPendingFiles] = useState<{ file: File; previewUrl: string | null }[] | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
@@ -336,95 +346,136 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     return "document";
   }
 
-  /** Manejador del input file: sube 1..N fotos / documentos vía /api/chat/send-media secuencial. */
-  const onPickFile = useCallback(
-    async (ev: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(ev.target.files ?? []);
-      // Reset del input para permitir seleccionar los mismos archivos dos veces seguidas.
-      ev.target.value = "";
-      if (files.length === 0) return;
+  /**
+   * Handler de los inputs de archivo: NO envía directo — pone los archivos en
+   * `pendingFiles` para que el usuario vea el preview y pueda quitar/agregar
+   * antes de mandar. El envío real lo hace `sendPendingFiles`.
+   */
+  const onPickFile = useCallback((ev: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(ev.target.files ?? []);
+    ev.target.value = "";
+    if (files.length === 0) return;
 
-      // Validaciones rápidas antes de arrancar: si UNO falla, cancelamos todo el batch.
-      const MAX = 15 * 1024 * 1024;
-      const invalid = files.find((f) => f.size < 1 || f.size > MAX);
-      if (invalid) {
-        setError(
-          invalid.size < 1
-            ? `El archivo "${invalid.name}" está vacío.`
-            : `"${invalid.name}" supera 15 MB.`
+    const MAX = 15 * 1024 * 1024;
+    const invalid = files.find((f) => f.size < 1 || f.size > MAX);
+    if (invalid) {
+      setError(
+        invalid.size < 1
+          ? `El archivo "${invalid.name}" está vacío.`
+          : `"${invalid.name}" supera 15 MB.`
+      );
+      return;
+    }
+
+    setError(null);
+    const entries = files.map((f) => {
+      const t = optimisticTypeForFile(f);
+      const canPreview = t === "image" || t === "video";
+      return { file: f, previewUrl: canPreview ? URL.createObjectURL(f) : null };
+    });
+    // Si ya había pendientes (usuario abrió el picker con archivos ya en cola),
+    // AGREGAR — así puede seguir sumando archivos antes de mandar.
+    setPendingFiles((prev) => [...(prev ?? []), ...entries]);
+  }, []);
+
+  /** Quita un archivo del preview (X sobre la miniatura). */
+  const removePendingFile = useCallback((index: number) => {
+    setPendingFiles((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      const [removed] = next.splice(index, 1);
+      if (removed?.previewUrl) {
+        try { URL.revokeObjectURL(removed.previewUrl); } catch { /* noop */ }
+      }
+      return next.length > 0 ? next : null;
+    });
+  }, []);
+
+  /** Cancela el preview entero (X del modal). Libera los blob URLs. */
+  const cancelPending = useCallback(() => {
+    setPendingFiles((prev) => {
+      if (prev) {
+        for (const e of prev) {
+          if (e.previewUrl) {
+            try { URL.revokeObjectURL(e.previewUrl); } catch { /* noop */ }
+          }
+        }
+      }
+      return null;
+    });
+  }, []);
+
+  /** Envía todo lo que esté en `pendingFiles` en secuencia, con optimistic UI. */
+  const sendPendingFiles = useCallback(async () => {
+    const list = pendingFiles ?? [];
+    if (list.length === 0) return;
+
+    // Cerrar el modal ANTES de arrancar para que el usuario vea el chat con los optimistics.
+    const entries = list.map((e, i) => {
+      const optType = optimisticTypeForFile(e.file);
+      return {
+        file: e.file,
+        opt: {
+          id: makeOptimisticId(),
+          createdAt: new Date(Date.now() + i).toISOString(),
+          type: optType,
+          content: e.file.name,
+          previewUrl: e.previewUrl ?? undefined,
+          status: "sending" as const,
+        },
+      };
+    });
+    setOptimistic((prev) => [...prev, ...entries.map((e) => e.opt)]);
+    setPendingFiles(null); // NO revocamos los blob URLs — los pasamos al optimistic
+
+    const errors: string[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      setUploadQueue({ current: i + 1, total: entries.length });
+      const { file, opt } = entries[i];
+      const res = await sendMobileMediaFile({ conversationId, file });
+      if (!res.ok) {
+        errors.push(`${file.name}: ${res.error ?? "error"}`);
+        setOptimistic((prev) =>
+          prev.map((m) =>
+            m.id === opt.id
+              ? { ...m, status: "failed", errorMessage: res.error ?? "No se pudo enviar" }
+              : m
+          )
         );
-        return;
       }
+    }
 
-      setError(null);
-
-      // Crear optimistics AL TOQUE para todos los archivos — cada uno aparece
-      // en el chat con miniatura antes de arrancar la subida.
-      const nowMs = Date.now();
-      const entries = files.map((f, i) => {
-        const optType = optimisticTypeForFile(f);
-        return {
-          file: f,
-          opt: {
-            id: makeOptimisticId(),
-            createdAt: new Date(nowMs + i).toISOString(),
-            type: optType,
-            content: f.name,
-            // Preview local: solo tipos que el <video>/<img> puede reproducir sin descargar.
-            previewUrl:
-              optType === "image" || optType === "video" ? URL.createObjectURL(f) : undefined,
-            status: "sending" as const,
-          },
-        };
-      });
-      setOptimistic((prev) => [...prev, ...entries.map((e) => e.opt)]);
-
-      const errors: string[] = [];
-
-      // Secuencial: WhatsApp preserva el orden si mandamos uno a uno.
-      for (let i = 0; i < entries.length; i++) {
-        setUploadQueue({ current: i + 1, total: entries.length });
-        const { file, opt } = entries[i];
-        const res = await sendMobileMediaFile({ conversationId, file });
-        if (!res.ok) {
-          errors.push(`${file.name}: ${res.error ?? "error"}`);
-          setOptimistic((prev) =>
-            prev.map((m) =>
-              m.id === opt.id
-                ? {
-                    ...m,
-                    status: "failed",
-                    errorMessage: res.error ?? "No se pudo enviar",
-                  }
-                : m
-            )
-          );
-        }
+    setUploadQueue(null);
+    if (errors.length > 0 && errors.length === entries.length) {
+      setError("No se pudo enviar ningún archivo.");
+    } else if (errors.length > 0) {
+      setError(`Fallaron ${errors.length}/${entries.length}: ${errors[0]}`);
+    }
+    await mutate();
+    const okIds = new Set(
+      entries
+        .filter((e) => !errors.some((err) => err.startsWith(e.file.name + ":")))
+        .map((e) => e.opt.id)
+    );
+    for (const e of entries) {
+      if (e.opt.previewUrl && okIds.has(e.opt.id)) {
+        try { URL.revokeObjectURL(e.opt.previewUrl); } catch { /* noop */ }
       }
-
-      setUploadQueue(null);
-      if (errors.length > 0 && errors.length === files.length) {
-        setError("No se pudo enviar ningún archivo.");
-      } else if (errors.length > 0) {
-        setError(`Fallaron ${errors.length}/${files.length}: ${errors[0]}`);
-      }
-      await mutate();
-      // Liberar blob URLs y limpiar optimistics de los que salieron bien.
-      const okIds = new Set(entries.filter((e) => !errors.some((err) => err.startsWith(e.file.name + ":"))).map((e) => e.opt.id));
-      for (const e of entries) {
-        if (e.opt.previewUrl && okIds.has(e.opt.id)) {
-          try { URL.revokeObjectURL(e.opt.previewUrl); } catch { /* noop */ }
-        }
-      }
-      setOptimistic((prev) => prev.filter((m) => !okIds.has(m.id)));
-    },
-    [conversationId, mutate]
-  );
+    }
+    setOptimistic((prev) => prev.filter((m) => !okIds.has(m.id)));
+  }, [pendingFiles, conversationId, mutate]);
 
   /** Envía el blob grabado por el MediaRecorder a /api/chat/send-media como audio (optimistic). */
   const uploadVoiceBlob = useCallback(
     async (blob: Blob) => {
-      if (blob.size < 300) return; // recortes accidentales de <300 bytes
+      if (blob.size === 0) {
+        setError("Grabación vacía. Volvé a intentar.");
+        return;
+      }
+      if (blob.size < 500) {
+        setError("Grabación demasiado corta. Manteé el botón más tiempo.");
+        return;
+      }
       setError(null);
       const ext = blob.type.includes("ogg") ? "ogg" : "webm";
       const file = new File([blob], `nota-voz.${ext}`, { type: blob.type || "audio/webm" });
@@ -716,6 +767,25 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             className="hidden"
             aria-hidden="true"
           />
+          {/* Cámara nativa Android: capture="environment" abre la cámara del sistema directo. */}
+          <input
+            ref={cameraPhotoRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onPickFile}
+            className="hidden"
+            aria-hidden="true"
+          />
+          <input
+            ref={cameraVideoRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
+            onChange={onPickFile}
+            className="hidden"
+            aria-hidden="true"
+          />
 
           {/* Menú desplegable de Foto / Documento sobre el botón de clip. */}
           {attachMenuOpen ? (
@@ -734,7 +804,33 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-purple-600">
                   <ImageIcon className="h-4 w-4" />
                 </span>
-                Foto o video
+                Galería
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachMenuOpen(false);
+                  cameraPhotoRef.current?.click();
+                }}
+                className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-pink-100 text-pink-600">
+                  <Camera className="h-4 w-4" />
+                </span>
+                Cámara (foto)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachMenuOpen(false);
+                  cameraVideoRef.current?.click();
+                }}
+                className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-red-100 text-red-600">
+                  <Video className="h-4 w-4" />
+                </span>
+                Cámara (video)
               </button>
               <button
                 type="button"
@@ -830,6 +926,17 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           onClose={() => setStickerPickerOpen(false)}
           onSelectSticker={onSelectStickerToSend}
           onPickEmoji={(emoji) => setText((prev) => prev + emoji)}
+        />
+      ) : null}
+
+      {/* Preview de archivos seleccionados antes de mandar */}
+      {pendingFiles && pendingFiles.length > 0 ? (
+        <PendingFilesPreview
+          files={pendingFiles}
+          onRemove={removePendingFile}
+          onCancel={cancelPending}
+          onSend={() => void sendPendingFiles()}
+          onAddMore={() => fileInputRef.current?.click()}
         />
       ) : null}
 
@@ -1006,6 +1113,131 @@ function formatHora(iso: string): string {
 }
 
 // ── Drawer picker de stickers ───────────────────────────────────────────────
+
+// ── Preview de archivos antes de enviar ─────────────────────────────────────
+
+function PendingFilesPreview({
+  files,
+  onRemove,
+  onCancel,
+  onSend,
+  onAddMore,
+}: {
+  files: { file: File; previewUrl: string | null }[];
+  onRemove: (index: number) => void;
+  onCancel: () => void;
+  onSend: () => void;
+  onAddMore: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-slate-900/95"
+      role="dialog"
+      aria-label="Previsualizar archivos antes de enviar"
+    >
+      {/* Header */}
+      <div
+        className="flex shrink-0 items-center justify-between px-3 py-2 text-white"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 32px)" }}
+      >
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label="Cancelar"
+          className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-white/10"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <p className="text-sm font-medium">
+          {files.length} {files.length === 1 ? "archivo" : "archivos"}
+        </p>
+        <button
+          type="button"
+          onClick={onAddMore}
+          aria-label="Agregar más"
+          title="Agregar más"
+          className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-white/10"
+        >
+          <ImageIcon className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Grid de previews */}
+      <div className="flex-1 overflow-y-auto p-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {files.map((entry, i) => {
+            const isImage = (entry.file.type || "").startsWith("image/");
+            const isVideo = (entry.file.type || "").startsWith("video/");
+            return (
+              <div
+                key={i}
+                className="relative aspect-square overflow-hidden rounded-xl bg-slate-800"
+              >
+                {isImage && entry.previewUrl ? (
+                  <img
+                    src={entry.previewUrl}
+                    alt={entry.file.name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : isVideo && entry.previewUrl ? (
+                  <video
+                    src={entry.previewUrl}
+                    className="h-full w-full object-cover"
+                    muted
+                    playsInline
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-3 text-center text-white/80">
+                    <FileText className="h-8 w-8" />
+                    <span className="line-clamp-2 text-[11px]">{entry.file.name}</span>
+                  </div>
+                )}
+
+                {/* Botón X para quitar */}
+                <button
+                  type="button"
+                  onClick={() => onRemove(i)}
+                  aria-label={`Quitar ${entry.file.name}`}
+                  className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white shadow-md active:scale-95"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+
+                {/* Nombre + tamaño abajo */}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-[10px] text-white">
+                  <p className="truncate">{entry.file.name}</p>
+                  <p className="opacity-75">{formatFileSize(entry.file.size)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer con botón Enviar */}
+      <div
+        className="shrink-0 border-t border-white/10 bg-slate-900 p-3"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+      >
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={files.length === 0}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0EA5E9] px-4 py-3 text-sm font-semibold text-white active:bg-[#0284C7] disabled:opacity-40"
+        >
+          <Send className="h-4 w-4" />
+          Enviar {files.length > 1 ? `(${files.length})` : ""}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 // ── Bubble optimista (mientras se envía) ────────────────────────────────────
 
