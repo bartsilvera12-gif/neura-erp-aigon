@@ -2,7 +2,8 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, FileText, ImagePlus, Mic, MessageCircle, Search, Send, Square } from "lucide-react";
+import { ArrowLeft, FileText, ImagePlus, Mic, MessageCircle, Search, Send, Smile, Square, Star, X } from "lucide-react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
   attachmentCaptionForDisplay,
   getErpAttachmentPublicUrl,
@@ -31,6 +32,53 @@ import {
  *    para la mayoría de los casos en movimiento.
  *  - No asigna ni transfiere conversaciones — eso queda para desktop.
  */
+// ── Tipos + helpers stickers ────────────────────────────────────────────────
+
+type StickerCatalogItem = { id: string; public_url: string; kind: string; orden: number };
+type StickerCatalogPack = {
+  id: string;
+  nombre: string;
+  orden: number;
+  stickers: StickerCatalogItem[];
+};
+
+/** Carga catálogo. Cachea en memoria del módulo por session ligera. */
+async function fetchStickerCatalog(): Promise<StickerCatalogPack[]> {
+  const res = await fetchWithSupabaseSession("/api/chat/stickers", { cache: "no-store" });
+  if (!res.ok) throw new Error(`Catálogo HTTP ${res.status}`);
+  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; packs?: StickerCatalogPack[] };
+  if (!json.ok || !Array.isArray(json.packs)) throw new Error("Respuesta inválida");
+  return json.packs;
+}
+
+async function sendStickerRequest(conversationId: string, stickerId: string) {
+  const res = await fetchWithSupabaseSession("/api/chat/send-sticker", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId, sticker_id: stickerId }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+}
+
+async function saveStickerFromMessage(opts: {
+  messageId: string;
+  packId?: string;
+  newPackName?: string;
+}) {
+  const res = await fetchWithSupabaseSession("/api/chat/stickers/save-from-message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message_id: opts.messageId,
+      pack_id: opts.packId,
+      new_pack_name: opts.newPackName,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+}
+
 export default function ConversacionesMobile() {
   const sp = useSearchParams();
   const router = useRouter();
@@ -171,6 +219,11 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingSince, setRecordingSince] = useState<number | null>(null);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [stickerCatalog, setStickerCatalog] = useState<StickerCatalogPack[] | null>(null);
+  const [stickerCatalogLoading, setStickerCatalogLoading] = useState(false);
+  /** Mensaje de sticker entrante seleccionado para guardar en un paquete. */
+  const [saveStickerFor, setSaveStickerFor] = useState<MobileChatMessage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -347,6 +400,54 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     return `${mm}:${ss}`;
   })();
 
+  /** Abre el drawer del picker y carga el catálogo si aún no está en memoria. */
+  const openStickerPicker = useCallback(async () => {
+    setStickerPickerOpen(true);
+    if (stickerCatalog !== null) return;
+    setStickerCatalogLoading(true);
+    try {
+      const packs = await fetchStickerCatalog();
+      setStickerCatalog(packs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cargar el catálogo");
+      setStickerPickerOpen(false);
+    } finally {
+      setStickerCatalogLoading(false);
+    }
+  }, [stickerCatalog]);
+
+  const onSelectStickerToSend = useCallback(
+    async (stickerId: string) => {
+      setSending(true);
+      setError(null);
+      try {
+        await sendStickerRequest(conversationId, stickerId);
+        setStickerPickerOpen(false);
+        await mutate();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo enviar el sticker");
+      } finally {
+        setSending(false);
+      }
+    },
+    [conversationId, mutate]
+  );
+
+  /** Guarda un sticker entrante en el paquete elegido (o crea uno nuevo). Refresca catálogo. */
+  const onSaveIncomingSticker = useCallback(
+    async (opts: { messageId: string; packId?: string; newPackName?: string }) => {
+      try {
+        await saveStickerFromMessage(opts);
+        setSaveStickerFor(null);
+        // Invalidar catálogo para que aparezca en el picker al toque siguiente
+        setStickerCatalog(null);
+      } catch (e) {
+        throw e; // el modal muestra el error
+      }
+    },
+    []
+  );
+
   const nombre = conv?.contact_nombre?.trim() || conv?.contact_telefono?.trim() || "Conversación";
 
   return (
@@ -389,7 +490,11 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         ) : (
           <ul className="space-y-1.5">
             {messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+              <MessageBubble
+                key={m.id}
+                message={m}
+                onSaveIncomingSticker={() => setSaveStickerFor(m)}
+              />
             ))}
           </ul>
         )}
@@ -440,6 +545,16 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           >
             <ImagePlus className="h-5 w-5" />
           </button>
+          <button
+            type="button"
+            onClick={() => void openStickerPicker()}
+            disabled={sending || recording}
+            aria-label="Enviar sticker"
+            title="Stickers"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Smile className="h-5 w-5" />
+          </button>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -479,11 +594,38 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           )}
         </div>
       </div>
+
+      {/* Drawer del picker de stickers (envío) */}
+      {stickerPickerOpen ? (
+        <StickerPickerDrawer
+          packs={stickerCatalog ?? []}
+          loading={stickerCatalogLoading}
+          disabled={sending}
+          onClose={() => setStickerPickerOpen(false)}
+          onSelect={onSelectStickerToSend}
+        />
+      ) : null}
+
+      {/* Modal para guardar sticker recibido */}
+      {saveStickerFor ? (
+        <SaveStickerModal
+          message={saveStickerFor}
+          existingPacks={stickerCatalog ?? []}
+          onCancel={() => setSaveStickerFor(null)}
+          onConfirm={onSaveIncomingSticker}
+        />
+      ) : null}
     </div>
   );
 }
 
-function MessageBubble({ message }: { message: MobileChatMessage }) {
+function MessageBubble({
+  message,
+  onSaveIncomingSticker,
+}: {
+  message: MobileChatMessage;
+  onSaveIncomingSticker?: () => void;
+}) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
   const type = message.message_type || "text";
@@ -497,11 +639,12 @@ function MessageBubble({ message }: { message: MobileChatMessage }) {
   const isDocument = type === "document";
   const isText = type === "text";
   const isSticker = type === "sticker";
+  const canSaveSticker = isSticker && !fromMe && Boolean(mediaUrl) && Boolean(onSaveIncomingSticker);
 
   return (
     <li className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[80%] overflow-hidden rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
+        className={`relative max-w-[80%] overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
           isSticker
             ? "bg-transparent shadow-none"
             : fromMe
@@ -509,6 +652,17 @@ function MessageBubble({ message }: { message: MobileChatMessage }) {
               : "rounded-bl-sm bg-white text-slate-800"
         } ${isSticker ? "" : "px-3 py-2"}`}
       >
+        {canSaveSticker ? (
+          <button
+            type="button"
+            onClick={onSaveIncomingSticker}
+            aria-label="Guardar sticker en tu biblioteca"
+            title="Guardar sticker"
+            className="absolute -right-2 -top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-amber-500 shadow-md active:scale-95"
+          >
+            <Star className="h-4 w-4" fill="currentColor" />
+          </button>
+        ) : null}
         {isImageLike && mediaUrl ? (
           <img
             src={mediaUrl}
@@ -622,4 +776,246 @@ function formatHora(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// ── Drawer picker de stickers ───────────────────────────────────────────────
+
+function StickerPickerDrawer({
+  packs,
+  loading,
+  disabled,
+  onClose,
+  onSelect,
+}: {
+  packs: StickerCatalogPack[];
+  loading: boolean;
+  disabled: boolean;
+  onClose: () => void;
+  onSelect: (stickerId: string) => void;
+}) {
+  const [activeTab, setActiveTab] = useState(0);
+  useEffect(() => {
+    setActiveTab(0);
+  }, [packs.length]);
+  const activePack = packs[activeTab];
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex flex-col justify-end bg-black/40"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-label="Elegí un sticker"
+        onClick={(ev) => ev.stopPropagation()}
+        className="flex max-h-[65svh] flex-col rounded-t-2xl border-t border-slate-200 bg-white"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)" }}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+          <h3 className="text-sm font-semibold text-slate-800">Stickers</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="p-6 text-center text-sm text-slate-500">Cargando catálogo…</p>
+        ) : packs.length === 0 ? (
+          <div className="p-6 text-center text-sm text-slate-500">
+            <p className="font-medium text-slate-700">Todavía no hay stickers guardados</p>
+            <p className="mt-1 text-xs">
+              Guardá stickers que te manden los clientes tocando la <Star className="inline h-3 w-3 -translate-y-0.5 text-amber-500" fill="currentColor" /> en su burbuja.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Tabs por paquete */}
+            <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2">
+              {packs.map((p, i) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setActiveTab(i)}
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                    i === activeTab
+                      ? "bg-[#0EA5E9] text-white"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {p.nombre}
+                </button>
+              ))}
+            </div>
+            {/* Grilla */}
+            <div className="flex-1 overflow-y-auto p-3">
+              {activePack?.stickers.length ? (
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
+                  {activePack.stickers.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => onSelect(s.id)}
+                      className="flex aspect-square items-center justify-center rounded-lg bg-slate-50 p-1 transition-transform active:scale-95 disabled:opacity-40"
+                    >
+                      <img
+                        src={s.public_url}
+                        alt="sticker"
+                        loading="lazy"
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="p-6 text-center text-sm text-slate-500">Paquete vacío</p>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Modal para guardar un sticker recibido ──────────────────────────────────
+
+function SaveStickerModal({
+  message,
+  existingPacks,
+  onCancel,
+  onConfirm,
+}: {
+  message: MobileChatMessage;
+  existingPacks: StickerCatalogPack[];
+  onCancel: () => void;
+  onConfirm: (opts: { messageId: string; packId?: string; newPackName?: string }) => Promise<void>;
+}) {
+  const rawPayload = (message.raw_payload ?? null) as RawPayload;
+  const previewUrl =
+    getErpAttachmentPublicUrl(rawPayload) ?? getWhatsAppMediaUrlFromRawPayload(rawPayload);
+
+  const NEW_VALUE = "__new__";
+  const initialSelection = existingPacks[0]?.id ?? NEW_VALUE;
+  const [selectedPackId, setSelectedPackId] = useState<string>(initialSelection);
+  const [newPackName, setNewPackName] = useState("Mis stickers");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isNew = selectedPackId === NEW_VALUE || existingPacks.length === 0;
+
+  async function handleConfirm() {
+    setError(null);
+    if (isNew && !newPackName.trim()) {
+      setError("Poné un nombre al nuevo paquete");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onConfirm(
+        isNew
+          ? { messageId: message.id, newPackName: newPackName.trim() }
+          : { messageId: message.id, packId: selectedPackId }
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onClick={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-label="Guardar sticker"
+        onClick={(ev) => ev.stopPropagation()}
+        className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-base font-semibold text-slate-900">Guardar sticker</h3>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Cancelar"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {previewUrl ? (
+          <div className="my-3 flex justify-center">
+            <img src={previewUrl} alt="sticker" className="h-24 w-24 object-contain" />
+          </div>
+        ) : null}
+
+        <label className="mt-2 block text-xs font-medium text-slate-600">Guardar en</label>
+        {existingPacks.length > 0 ? (
+          <select
+            value={selectedPackId}
+            onChange={(e) => setSelectedPackId(e.target.value)}
+            disabled={saving}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm"
+          >
+            {existingPacks.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+            <option value={NEW_VALUE}>➕ Nuevo paquete…</option>
+          </select>
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">Todavía no tenés paquetes. Se creará uno nuevo.</p>
+        )}
+
+        {isNew ? (
+          <div className="mt-2">
+            <label className="block text-xs font-medium text-slate-600">Nombre del paquete</label>
+            <input
+              type="text"
+              value={newPackName}
+              onChange={(e) => setNewPackName(e.target.value)}
+              disabled={saving}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-2 text-sm"
+              autoFocus
+            />
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="mt-2 rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700">{error}</p>
+        ) : null}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleConfirm()}
+            disabled={saving}
+            className="rounded-lg bg-[#0EA5E9] px-4 py-2 text-sm font-semibold text-white active:bg-[#0284C7] disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
