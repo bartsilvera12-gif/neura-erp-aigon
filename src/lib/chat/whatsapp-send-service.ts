@@ -287,6 +287,26 @@ export async function sendWhatsAppAudio(params: SendWhatsAppAudioParams): Promis
   });
 }
 
+export type SendWhatsAppStickerParams = {
+  toDigits: string;
+  phoneNumberId: string;
+  accessToken: string;
+  /** URL HTTPS pública del webp (Supabase Storage). Meta exige webp 512x512. */
+  stickerUrl: string;
+  graphVersion?: string;
+};
+
+export async function sendWhatsAppSticker(
+  params: SendWhatsAppStickerParams
+): Promise<SendWhatsAppTextResult> {
+  return sendWhatsAppPayload(params, {
+    messaging_product: "whatsapp",
+    to: params.toDigits,
+    type: "sticker",
+    sticker: { link: params.stickerUrl },
+  });
+}
+
 export type SendWhatsAppVideoParams = {
   toDigits: string;
   phoneNumberId: string;
