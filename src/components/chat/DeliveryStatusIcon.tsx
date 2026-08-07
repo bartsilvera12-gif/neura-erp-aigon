@@ -38,3 +38,19 @@ export function DeliveryStatusIcon({
   }
   return <Clock className="h-3 w-3 opacity-70" aria-label="Pendiente" />;
 }
+
+/**
+ * Palomita en el mensaje ENTRANTE (burbuja del cliente): confirma que le mandamos el
+ * acuse de lectura a WhatsApp, o sea que al cliente le quedó el doble check azul de su lado.
+ *
+ * `whatsapp_read_at` lo sella POST /api/chat/mark-read cuando Meta acepta el acuse. Si todavía
+ * no salió, no dibujamos nada — mejor vacío que una palomita que miente.
+ */
+export function InboundReadIcon({ readAt }: { readAt: string | null | undefined }) {
+  if (!readAt) return null;
+  return (
+    <span title="Le marcaste como leído" className="inline-flex">
+      <CheckCheck className="h-3 w-3 text-sky-500" aria-label="Le marcaste como leído" />
+    </span>
+  );
+}

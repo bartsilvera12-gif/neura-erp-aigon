@@ -22,7 +22,7 @@ import {
   type MobileChatConversation,
   type MobileChatMessage,
 } from "@/shared/hooks/useChatMobile";
-import { DeliveryStatusIcon } from "@/components/chat/DeliveryStatusIcon";
+import { DeliveryStatusIcon, InboundReadIcon } from "@/components/chat/DeliveryStatusIcon";
 import { extensionForMime, micErrorMessage, pickRecordingMime } from "@/lib/chat/voice-recording";
 
 /**
@@ -349,16 +349,19 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     if (!conversationId || !lastInboundId) return;
     void (async () => {
       try {
-        await fetchWithSupabaseSession("/api/chat/mark-read", {
+        const res = await fetchWithSupabaseSession("/api/chat/mark-read", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ conversation_id: conversationId }),
         });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; read_at?: string };
+        // Refrescar para que la palomita del cliente aparezca al toque y no en el próximo poll.
+        if (json.read_at) await mutate();
       } catch {
         /* silent — el chat funciona igual sin el check azul */
       }
     })();
-  }, [conversationId, lastInboundId]);
+  }, [conversationId, lastInboundId, mutate]);
 
   /**
    * Envío de texto con Optimistic UI.
@@ -1282,14 +1285,18 @@ function MessageBubble({
             <span>{ts}</span>
             {fromMe ? (
               <DeliveryStatusIcon status={message.whatsapp_delivery_status ?? null} />
-            ) : null}
+            ) : (
+              <InboundReadIcon readAt={message.whatsapp_read_at ?? null} />
+            )}
           </p>
         ) : (
           <p className="mt-0.5 flex items-center gap-1 pl-1 text-[10px] tabular-nums text-slate-400">
             <span>{ts}</span>
             {fromMe ? (
               <DeliveryStatusIcon status={message.whatsapp_delivery_status ?? null} />
-            ) : null}
+            ) : (
+              <InboundReadIcon readAt={message.whatsapp_read_at ?? null} />
+            )}
           </p>
         )}
       </div>

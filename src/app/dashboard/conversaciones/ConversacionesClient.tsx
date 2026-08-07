@@ -70,7 +70,7 @@ import type { OmnicanalOperatorRole } from "@/lib/chat/omnicanal-supervision-rea
 import { playInboxNotificationBeep, readInboxNotificationSoundEnabled } from "@/lib/chat/inbox-notification-preference";
 import { createBrowserClientForSchema } from "@/lib/supabase";
 import { ChannelBadge } from "@/components/chat/ChannelBadge";
-import { DeliveryStatusIcon } from "@/components/chat/DeliveryStatusIcon";
+import { DeliveryStatusIcon, InboundReadIcon } from "@/components/chat/DeliveryStatusIcon";
 import { extensionForMime, micErrorMessage, pickRecordingMime } from "@/lib/chat/voice-recording";
 
 type ChatMessage = {
@@ -81,6 +81,8 @@ type ChatMessage = {
   created_at: string;
   raw_payload?: Record<string, unknown> | null;
   whatsapp_delivery_status?: string | null;
+  /** Solo entrantes: cuándo le confirmamos la lectura a WhatsApp (mark-read). */
+  whatsapp_read_at?: string | null;
 };
 
 type InboxTemplate = {
@@ -141,6 +143,7 @@ function mapRowToMessage(row: Record<string, unknown>): ChatMessage {
         : null,
     whatsapp_delivery_status:
       row.whatsapp_delivery_status != null ? String(row.whatsapp_delivery_status) : null,
+    whatsapp_read_at: row.whatsapp_read_at != null ? String(row.whatsapp_read_at) : null,
   };
 }
 
@@ -1586,6 +1589,19 @@ export function ConversacionesClient({
         setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unread_count: 0 } : c)));
       } catch {
         /* no bloquear UI */
+      }
+      // Acuse de lectura hacia WhatsApp (doble check azul del lado del cliente) + sello
+      // whatsapp_read_at en los entrantes, que es lo que pinta la palomita en sus burbujas.
+      // Best-effort: si Meta rechaza, el inbox sigue igual.
+      try {
+        await fetchWithSupabaseSession("/api/chat/mark-read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversation_id: id }),
+        });
+        await loadMessages(id);
+      } catch {
+        /* silent */
       }
     },
     [loadMessages, conversations]
@@ -3602,7 +3618,9 @@ export function ConversacionesClient({
                             </span>
                             {m.from_me ? (
                               <DeliveryStatusIcon status={m.whatsapp_delivery_status} />
-                            ) : null}
+                            ) : (
+                              <InboundReadIcon readAt={m.whatsapp_read_at} />
+                            )}
                           </div>
                           {m.from_me && m.whatsapp_delivery_status === "failed" ? (
                             <div className="mt-1 rounded-md bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700 flex items-start gap-1">

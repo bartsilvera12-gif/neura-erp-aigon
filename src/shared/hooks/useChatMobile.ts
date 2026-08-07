@@ -29,6 +29,11 @@ export type MobileChatMessage = {
    * "sent" | "delivered" | "read" | "failed" | null
    */
   whatsapp_delivery_status?: string | null;
+  /**
+   * Solo en ENTRANTES: cuándo le confirmamos la lectura a WhatsApp (mark-read). Es lo que
+   * dibuja la palomita azul en la burbuja del cliente. null = todavía no salió el acuse.
+   */
+  whatsapp_read_at?: string | null;
 };
 
 /** Inbox mobile: hasta 50 conversaciones abiertas/pendientes. */

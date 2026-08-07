@@ -8,7 +8,7 @@ import {
   getWhatsAppMediaUrlFromRawPayload,
 } from "@/lib/chat/message-erp-display";
 import { friendlyWhatsappFailureReason, extractWhatsappFailureInfo } from "@/lib/chat/whatsapp-failure-reason";
-import { DeliveryStatusIcon } from "@/components/chat/DeliveryStatusIcon";
+import { DeliveryStatusIcon, InboundReadIcon } from "@/components/chat/DeliveryStatusIcon";
 import {
   canRecordAudio,
   extensionForMime,
@@ -30,6 +30,8 @@ type Msg = {
   created_at: string | null;
   raw_payload?: Record<string, unknown> | null;
   whatsapp_delivery_status?: string | null;
+  /** Solo entrantes: cuándo le confirmamos la lectura a WhatsApp. */
+  whatsapp_read_at?: string | null;
 };
 
 type Pending = {
@@ -277,14 +279,21 @@ export default function MAsesorChatPage() {
     }
     if (!lastInboundId || lastReadRef.current === lastInboundId) return;
     lastReadRef.current = lastInboundId;
-    void fetchWithSupabaseSession("/api/chat/mark-read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: conversationId }),
-    }).catch(() => {
-      /* silent */
-    });
-  }, [conversationId, messages]);
+    void (async () => {
+      try {
+        const res = await fetchWithSupabaseSession("/api/chat/mark-read", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversation_id: conversationId }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { read_at?: string };
+        // Refrescar para que la palomita del cliente se vea al toque.
+        if (json.read_at) await load(true);
+      } catch {
+        /* silent */
+      }
+    })();
+  }, [conversationId, messages, load]);
 
   // Autogrow del textarea (multilínea sin romper el layout).
   useEffect(() => {
@@ -611,7 +620,11 @@ export default function MAsesorChatPage() {
                     }`}
                   >
                     <span>{fmtHora(m.created_at)}</span>
-                    {m.from_me ? <DeliveryStatusIcon status={m.whatsapp_delivery_status} /> : null}
+                    {m.from_me ? (
+                      <DeliveryStatusIcon status={m.whatsapp_delivery_status} />
+                    ) : (
+                      <InboundReadIcon readAt={m.whatsapp_read_at} />
+                    )}
                   </div>
                   {m.from_me && m.whatsapp_delivery_status === "failed" ? (
                     <div className="mt-1 rounded-md bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700 flex items-start gap-1">

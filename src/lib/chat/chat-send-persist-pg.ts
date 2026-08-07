@@ -120,12 +120,13 @@ export async function pgSelectChatMessagesForInboxApi(
     raw_payload: unknown;
     created_at: string;
     whatsapp_delivery_status: string | null;
+    whatsapp_read_at: string | null;
   }>
 > {
   const qt = quoteSchemaTable(schema, "chat_messages");
   const q = `
     SELECT id::text AS id, from_me, message_type::text AS message_type, content,
-           raw_payload, created_at, whatsapp_delivery_status
+           raw_payload, created_at, whatsapp_delivery_status, whatsapp_read_at
     FROM ${qt}
     WHERE conversation_id = $1::uuid
     ORDER BY created_at ASC
@@ -143,6 +144,12 @@ export async function pgSelectChatMessagesForInboxApi(
         : String(row.created_at ?? ""),
     whatsapp_delivery_status:
       row.whatsapp_delivery_status != null ? String(row.whatsapp_delivery_status) : null,
+    whatsapp_read_at:
+      row.whatsapp_read_at instanceof Date
+        ? row.whatsapp_read_at.toISOString()
+        : row.whatsapp_read_at != null
+          ? String(row.whatsapp_read_at)
+          : null,
   }));
 }
 

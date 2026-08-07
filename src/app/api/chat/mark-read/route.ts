@@ -131,14 +131,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5) Bajar unread_count a 0 en local (mejor UX, sin esperar al poll)
+    const readAt = new Date().toISOString();
+
+    // 5) Sellar los entrantes como leídos. Meta marca el último Y todos los previos, así
+    //    que sellamos todos los que no tenían marca. Es lo que pinta la palomita azul en
+    //    la burbuja del cliente dentro del ERP (confirmación visual de que el visto salió).
+    const { error: readErr } = await supabase
+      .from("chat_messages")
+      .update({ whatsapp_read_at: readAt })
+      .eq("empresa_id", empresaId)
+      .eq("conversation_id", conversationId)
+      .eq("from_me", false)
+      .is("whatsapp_read_at", null);
+    if (readErr) {
+      console.warn("[api/chat/mark-read] stamp_read_at", readErr.message);
+    }
+
+    // 6) Bajar unread_count a 0 en local (mejor UX, sin esperar al poll)
     await supabase
       .from("chat_conversations")
-      .update({ unread_count: 0, updated_at: new Date().toISOString() })
+      .update({ unread_count: 0, updated_at: readAt })
       .eq("id", conversationId)
       .eq("empresa_id", empresaId);
 
-    return NextResponse.json({ ok: true, wa_message_id: waMessageId });
+    return NextResponse.json({ ok: true, wa_message_id: waMessageId, read_at: readAt });
   } catch (e) {
     console.error("[api/chat/mark-read]", e);
     return NextResponse.json({ ok: false, error: "Error interno" }, { status: 500 });
