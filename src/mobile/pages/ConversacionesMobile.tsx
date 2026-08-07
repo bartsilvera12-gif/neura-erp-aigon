@@ -24,6 +24,7 @@ import {
 } from "@/shared/hooks/useChatMobile";
 import { DeliveryStatusIcon, InboundReadIcon } from "@/components/chat/DeliveryStatusIcon";
 import { extensionForMime, micErrorMessage, pickRecordingMime } from "@/lib/chat/voice-recording";
+import { SWIPE_REPLY_TRIGGER, useSwipeToReply } from "@/shared/hooks/useSwipeToReply";
 
 /**
  * Conversaciones mobile — vista funcional.
@@ -1130,13 +1131,6 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   );
 }
 
-/** Arrastre horizontal a partir del cual el gesto cuenta como "responder". */
-const SWIPE_REPLY_TRIGGER = 56;
-/** Tope del arrastre: la burbuja no se sigue corriendo aunque estires más. */
-const SWIPE_REPLY_MAX = 84;
-/** Antes de este umbral no decidimos si es scroll vertical o swipe horizontal. */
-const SWIPE_REPLY_DEADZONE = 12;
-
 function MessageBubble({
   message,
   quotedMessage,
@@ -1179,30 +1173,12 @@ function MessageBubble({
     }
     longPressStartRef.current = null;
   };
-  // ── Swipe horizontal → responder (como WhatsApp). El gesto se decide recién pasado
-  //    el deadzone: si el dedo va más en vertical que en horizontal, es scroll de la
-  //    lista y no tocamos nada. `touch-action: pan-y` en la burbuja deja el scroll
-  //    vertical nativo y nos deja a nosotros el movimiento horizontal.
-  const [dragX, setDragX] = useState(0);
-  // Espejo en ref: el pointerup lee el desplazamiento real sin depender de que el
-  // último setState del pointermove ya haya renderizado.
-  const dragXRef = useRef(0);
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const draggingRef = useRef(false);
-  const swipeArmedRef = useRef(false);
-
-  const resetSwipe = () => {
-    dragStartRef.current = null;
-    draggingRef.current = false;
-    swipeArmedRef.current = false;
-    dragXRef.current = 0;
-    setDragX(0);
-  };
+  // Swipe horizontal → responder (como WhatsApp).
+  const swipe = useSwipeToReply(onSwipeReply, () => cancelLongPress());
+  const dragX = swipe.dragX;
 
   const handlePointerDown = (ev: React.PointerEvent) => {
-    dragStartRef.current = { x: ev.clientX, y: ev.clientY };
-    draggingRef.current = false;
-    swipeArmedRef.current = false;
+    swipe.handlers.onPointerDown(ev);
     if (!onLongPress) return;
     longPressFiredRef.current = false;
     longPressStartRef.current = { x: ev.clientX, y: ev.clientY };
@@ -1221,42 +1197,17 @@ function MessageBubble({
       const ady = Math.abs(ev.clientY - s.y);
       if (adx > 10 || ady > 10) cancelLongPress();
     }
-
-    const start = dragStartRef.current;
-    if (!start || !onSwipeReply) return;
-    const dx = ev.clientX - start.x;
-    const dy = ev.clientY - start.y;
-
-    if (!draggingRef.current) {
-      if (Math.abs(dx) < SWIPE_REPLY_DEADZONE) return;
-      // Movimiento más vertical que horizontal: es scroll, soltamos el gesto.
-      if (Math.abs(dy) > Math.abs(dx)) {
-        dragStartRef.current = null;
-        return;
-      }
-      draggingRef.current = true;
-    }
-
-    const clamped = Math.max(-SWIPE_REPLY_MAX, Math.min(SWIPE_REPLY_MAX, dx));
-    dragXRef.current = clamped;
-    setDragX(clamped);
-    // Vibra al cruzar el umbral, como WhatsApp: avisa que soltando ya cita.
-    if (!swipeArmedRef.current && Math.abs(clamped) >= SWIPE_REPLY_TRIGGER) {
-      swipeArmedRef.current = true;
-      try { navigator.vibrate?.(20); } catch { /* noop */ }
-    }
+    swipe.handlers.onPointerMove(ev);
   };
 
   const handlePointerUp = () => {
     cancelLongPress();
-    const fired = draggingRef.current && Math.abs(dragXRef.current) >= SWIPE_REPLY_TRIGGER;
-    resetSwipe();
-    if (fired) onSwipeReply?.();
+    swipe.handlers.onPointerUp();
   };
 
   const handlePointerCancel = () => {
     cancelLongPress();
-    resetSwipe();
+    swipe.handlers.onPointerCancel();
   };
 
   return (
@@ -1278,13 +1229,7 @@ function MessageBubble({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        style={{
-          transform: dragX ? `translateX(${dragX}px)` : undefined,
-          // Con dragX != 0 la burbuja sigue al dedo sin transición; al soltar vuelve a 0
-          // y ahí sí anima el regreso.
-          transition: dragX ? "none" : "transform 160ms ease-out",
-          touchAction: "pan-y",
-        }}
+        style={swipe.style}
         className={`relative max-w-[80%] select-none overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
           isSticker
             ? "bg-transparent shadow-none"

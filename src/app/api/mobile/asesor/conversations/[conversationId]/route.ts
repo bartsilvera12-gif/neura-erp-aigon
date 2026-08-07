@@ -77,7 +77,7 @@ export async function GET(
     const { data: msgRows } = await supabase
       .from("chat_messages")
       .select(
-        "id, from_me, sender_type, content, message_type, created_at, raw_payload, whatsapp_delivery_status, whatsapp_read_at"
+        "id, from_me, sender_type, content, message_type, created_at, raw_payload, whatsapp_delivery_status, whatsapp_read_at, wa_message_id"
       )
       .eq("conversation_id", conversationId)
       .eq("empresa_id", empresa_id)
@@ -95,6 +95,7 @@ export async function GET(
         raw_payload: (m.raw_payload as Record<string, unknown> | null) ?? null,
         whatsapp_delivery_status: (m.whatsapp_delivery_status as string | null) ?? null,
         whatsapp_read_at: (m.whatsapp_read_at as string | null) ?? null,
+        wa_message_id: (m.wa_message_id as string | null) ?? null,
       }))
       .reverse();
 

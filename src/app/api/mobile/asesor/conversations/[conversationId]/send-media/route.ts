@@ -36,6 +36,9 @@ export async function POST(
   }
   const capRaw = form?.get("caption");
   const caption = typeof capRaw === "string" ? capRaw : "";
+  // wamid del mensaje citado (responder estilo WhatsApp). Opcional.
+  const replyRaw = form?.get("reply_to");
+  const replyTo = typeof replyRaw === "string" ? replyRaw.trim() : "";
 
   // 1) Ownership en backend (PostgREST, camino soportado para neura) — idéntico al endpoint de texto.
   try {
@@ -73,6 +76,7 @@ export async function POST(
     fwd.set("conversation_id", conversationId);
     fwd.set("file", file, file.name || "nota-voz.webm");
     if (caption) fwd.set("caption", caption);
+    if (replyTo) fwd.set("reply_to", replyTo);
 
     const headers: Record<string, string> = {};
     const auth = request.headers.get("authorization");

@@ -28,8 +28,12 @@ export async function POST(
   }
   const { supabase, empresa_id, usuario_id } = ctx;
 
-  const body = (await request.json().catch(() => null)) as { message?: string } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { message?: string; reply_to?: string }
+    | null;
   const message = typeof body?.message === "string" ? body.message.trim() : "";
+  // wamid del mensaje citado (responder estilo WhatsApp). Opcional.
+  const replyTo = typeof body?.reply_to === "string" ? body.reply_to.trim() : "";
   if (!message) return NextResponse.json({ ok: false, error: "message requerido" }, { status: 400 });
 
   // 1) Ownership en backend (PostgREST, camino soportado para neura).
@@ -71,7 +75,11 @@ export async function POST(
     const res = await fetch(new URL("/api/chat/send", request.url), {
       method: "POST",
       headers,
-      body: JSON.stringify({ conversation_id: conversationId, message }),
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        message,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+      }),
     });
     const data = await res.json().catch(() => ({ ok: false, error: "send_failed" }));
     return NextResponse.json(data, { status: res.status });

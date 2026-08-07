@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
@@ -9,6 +9,7 @@ import {
 } from "@/lib/chat/message-erp-display";
 import { friendlyWhatsappFailureReason, extractWhatsappFailureInfo } from "@/lib/chat/whatsapp-failure-reason";
 import { DeliveryStatusIcon, InboundReadIcon } from "@/components/chat/DeliveryStatusIcon";
+import { SWIPE_REPLY_TRIGGER, useSwipeToReply } from "@/shared/hooks/useSwipeToReply";
 import {
   canRecordAudio,
   extensionForMime,
@@ -32,7 +33,33 @@ type Msg = {
   whatsapp_delivery_status?: string | null;
   /** Solo entrantes: cuándo le confirmamos la lectura a WhatsApp. */
   whatsapp_read_at?: string | null;
+  /** id de WhatsApp: con esto se cita el mensaje y se resuelven las citas recibidas. */
+  wa_message_id?: string | null;
 };
+
+/** Texto corto para representar un mensaje citado. */
+function previewForQuoted(m: Msg): string {
+  const t = m.message_type || "text";
+  if (t === "text") return (m.content ?? "").slice(0, 140) || "Mensaje";
+  if (t === "image") return "🖼️ Imagen";
+  if (t === "video") return "📹 Video";
+  if (t === "audio") return "🎤 Nota de voz";
+  if (t === "sticker") return "🌟 Sticker";
+  if (t === "document") return "📎 Documento";
+  if (t === "location") return "📍 Ubicación";
+  if (t === "contacts") return "👤 Contacto";
+  return "Mensaje";
+}
+
+/** wamid al que responde un mensaje: `context.id` (entrantes) o el sello propio del ERP. */
+function quotedWaIdOf(m: Msg): string | null {
+  const raw = (m.raw_payload ?? null) as
+    | ({ context?: { id?: string }; erp?: { reply_to_wa_message_id?: string } } & Record<string, unknown>)
+    | null;
+  if (!raw) return null;
+  const root = messageRoot(raw) as { context?: { id?: string } } | null;
+  return root?.context?.id ?? raw.erp?.reply_to_wa_message_id ?? null;
+}
 
 type Pending = {
   tempId: string;
@@ -40,6 +67,8 @@ type Pending = {
   kind: "text" | "audio" | "file";
   content: string;
   file?: File;
+  /** wamid citado, para reintentar sin perder la cita. */
+  replyTo?: string;
 };
 
 /** Raíz del mensaje dentro del raw_payload (envelope YCloud o Meta directo). */
@@ -185,6 +214,82 @@ function MessageBody({ m }: { m: Msg }) {
   );
 }
 
+/**
+ * Burbuja con gesto de deslizar para citar (mismo comportamiento que la vista de la APK).
+ * `onReply` viene undefined cuando el mensaje todavía no tiene wa_message_id — sin ese id
+ * WhatsApp no puede armar la cita, así que ni ofrecemos el gesto.
+ */
+function ChatBubble({
+  m,
+  quoted,
+  onReply,
+}: {
+  m: Msg;
+  quoted: Msg | null;
+  onReply?: () => void;
+}) {
+  const swipe = useSwipeToReply(onReply);
+  return (
+    <div className={`relative flex ${m.from_me ? "justify-end" : "justify-start"}`}>
+      {swipe.dragX !== 0 ? (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-[#3F8E91] ${
+            swipe.dragX > 0 ? "left-1" : "right-1"
+          }`}
+          style={{ opacity: Math.min(1, Math.abs(swipe.dragX) / SWIPE_REPLY_TRIGGER) }}
+        >
+          ↩
+        </span>
+      ) : null}
+      <div
+        {...swipe.handlers}
+        style={swipe.style}
+        className={`max-w-[78%] select-none rounded-2xl px-3 py-2 text-[14px] leading-snug shadow-sm ${
+          m.from_me
+            ? "bg-[#4FAEB2] text-white rounded-br-md"
+            : "bg-white text-slate-800 border border-slate-100 rounded-bl-md"
+        }`}
+      >
+        {quoted ? (
+          <div
+            className={`mb-1.5 rounded-lg border-l-4 px-2 py-1 text-[11px] ${
+              m.from_me
+                ? "border-white/60 bg-white/15 text-white/90"
+                : "border-[#3F8E91] bg-[#3F8E91]/10 text-slate-700"
+            }`}
+          >
+            <p className="truncate font-medium">{quoted.from_me ? "Vos" : "Cliente"}</p>
+            <p className="line-clamp-2 opacity-90">{previewForQuoted(quoted)}</p>
+          </div>
+        ) : null}
+        <MessageBody m={m} />
+        <div
+          className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] tabular-nums ${
+            m.from_me ? "text-white/75" : "text-slate-400"
+          }`}
+        >
+          <span>{fmtHora(m.created_at)}</span>
+          {m.from_me ? (
+            <DeliveryStatusIcon status={m.whatsapp_delivery_status} />
+          ) : (
+            <InboundReadIcon readAt={m.whatsapp_read_at} />
+          )}
+        </div>
+        {m.from_me && m.whatsapp_delivery_status === "failed" ? (
+          <div className="mt-1 rounded-md bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700 flex items-start gap-1">
+            <span aria-hidden>⚠</span>
+            <span>
+              <span className="font-semibold">No entregado.</span>{" "}
+              {friendlyWhatsappFailureReason(extractWhatsappFailureInfo(m.raw_payload))}
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function MAsesorChatPage() {
   const params = useParams<{ conversationId: string }>();
   const conversationId = (params?.conversationId as string) ?? "";
@@ -199,6 +304,8 @@ export default function MAsesorChatPage() {
   const [text, setText] = useState("");
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [showEmoji, setShowEmoji] = useState(false);
+  /** Mensaje que se está citando (responder estilo WhatsApp). */
+  const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
   const [micSupported, setMicSupported] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
@@ -266,6 +373,24 @@ export default function MAsesorChatPage() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, pending]);
 
+  // Índice wamid → mensaje, para resolver de qué mensaje es la cita que trae uno nuevo.
+  const messagesByWaId = useMemo(() => {
+    const map = new Map<string, Msg>();
+    for (const m of messages) {
+      if (m.wa_message_id) map.set(m.wa_message_id, m);
+    }
+    return map;
+  }, [messages]);
+
+  const resolveQuotedFor = useCallback(
+    (m: Msg): Msg | null => {
+      const waId = quotedWaIdOf(m);
+      if (!waId) return null;
+      return messagesByWaId.get(waId) ?? null;
+    },
+    [messagesByWaId]
+  );
+
   // Marcar como leído en WhatsApp → al cliente le quedan las tildes azules en SUS mensajes.
   // Una llamada por último entrante (no en cada poll de 12 s). Falla suave.
   const lastReadRef = useRef<string | null>(null);
@@ -323,7 +448,7 @@ export default function MAsesorChatPage() {
 
   // ── Envío de texto (optimista, no bloqueante) ──────────────────────────────
   const deliverText = useCallback(
-    (tempId: string, msg: string) => {
+    (tempId: string, msg: string, replyTo?: string) => {
       void (async () => {
         try {
           const res = await fetchWithSupabaseSession(
@@ -331,7 +456,7 @@ export default function MAsesorChatPage() {
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ message: msg }),
+              body: JSON.stringify({ message: msg, ...(replyTo ? { reply_to: replyTo } : {}) }),
             }
           );
           const data = await res.json().catch(() => ({}));
@@ -358,11 +483,12 @@ export default function MAsesorChatPage() {
 
   // ── Envío de audio (optimista, no bloqueante) ──────────────────────────────
   const deliverAudio = useCallback(
-    (tempId: string, file: File) => {
+    (tempId: string, file: File, replyTo?: string) => {
       void (async () => {
         try {
           const fd = new FormData();
           fd.set("file", file, file.name || "nota-voz.webm");
+          if (replyTo) fd.set("reply_to", replyTo);
           const res = await fetchWithSupabaseSession(
             `/api/mobile/asesor/conversations/${conversationId}/send-media`,
             { method: "POST", body: fd }
@@ -393,21 +519,28 @@ export default function MAsesorChatPage() {
     const msg = text.trim();
     if (!msg) return;
     const tempId = `tmp-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    const replyTo = replyingTo?.wa_message_id ?? undefined;
     setText("");
     setShowEmoji(false);
     setSendErr(null);
-    setPending((p) => [...p, { tempId, kind: "text", content: msg, status: "sending" }]);
-    deliverText(tempId, msg);
-  }, [text, deliverText]);
+    setReplyingTo(null);
+    setPending((p) => [...p, { tempId, kind: "text", content: msg, status: "sending", replyTo }]);
+    deliverText(tempId, msg, replyTo);
+  }, [text, deliverText, replyingTo]);
 
   const sendAudio = useCallback(
     (file: File) => {
       const tempId = `tmp-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      const replyTo = replyingTo?.wa_message_id ?? undefined;
       setSendErr(null);
-      setPending((p) => [...p, { tempId, kind: "audio", content: "Nota de voz", file, status: "sending" }]);
-      deliverAudio(tempId, file);
+      setReplyingTo(null);
+      setPending((p) => [
+        ...p,
+        { tempId, kind: "audio", content: "Nota de voz", file, status: "sending", replyTo },
+      ]);
+      deliverAudio(tempId, file, replyTo);
     },
-    [deliverAudio]
+    [deliverAudio, replyingTo]
   );
 
   // Imagen / video: mismo endpoint de media (detecta el tipo por el archivo). Optimista.
@@ -415,20 +548,22 @@ export default function MAsesorChatPage() {
     (file: File) => {
       if (!file || file.size < 1) return;
       const tempId = `tmp-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+      const replyTo = replyingTo?.wa_message_id ?? undefined;
       setSendErr(null);
+      setReplyingTo(null);
       const label = file.type.startsWith("video/") ? "📹 Video" : file.type.startsWith("image/") ? "🖼️ Imagen" : "📎 Archivo";
-      setPending((p) => [...p, { tempId, kind: "file", content: label, file, status: "sending" }]);
-      deliverAudio(tempId, file);
+      setPending((p) => [...p, { tempId, kind: "file", content: label, file, status: "sending", replyTo }]);
+      deliverAudio(tempId, file, replyTo);
     },
-    [deliverAudio]
+    [deliverAudio, replyingTo]
   );
 
   const retry = useCallback(
     (item: Pending) => {
       setSendErr(null);
       setPending((p) => p.map((x) => (x.tempId === item.tempId ? { ...x, status: "sending" } : x)));
-      if (item.kind === "audio" && item.file) deliverAudio(item.tempId, item.file);
-      else deliverText(item.tempId, item.content);
+      if (item.file) deliverAudio(item.tempId, item.file, item.replyTo);
+      else deliverText(item.tempId, item.content, item.replyTo);
     },
     [deliverAudio, deliverText]
   );
@@ -607,36 +742,12 @@ export default function MAsesorChatPage() {
         ) : (
           <>
             {messages.map((m) => (
-              <div key={m.id} className={`flex ${m.from_me ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[78%] rounded-2xl px-3 py-2 text-[14px] leading-snug shadow-sm ${
-                    m.from_me ? "bg-[#4FAEB2] text-white rounded-br-md" : "bg-white text-slate-800 border border-slate-100 rounded-bl-md"
-                  }`}
-                >
-                  <MessageBody m={m} />
-                  <div
-                    className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] tabular-nums ${
-                      m.from_me ? "text-white/75" : "text-slate-400"
-                    }`}
-                  >
-                    <span>{fmtHora(m.created_at)}</span>
-                    {m.from_me ? (
-                      <DeliveryStatusIcon status={m.whatsapp_delivery_status} />
-                    ) : (
-                      <InboundReadIcon readAt={m.whatsapp_read_at} />
-                    )}
-                  </div>
-                  {m.from_me && m.whatsapp_delivery_status === "failed" ? (
-                    <div className="mt-1 rounded-md bg-red-50 border border-red-200 px-2 py-1 text-[11px] text-red-700 flex items-start gap-1">
-                      <span aria-hidden>⚠</span>
-                      <span>
-                        <span className="font-semibold">No entregado.</span>{" "}
-                        {friendlyWhatsappFailureReason(extractWhatsappFailureInfo(m.raw_payload))}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+              <ChatBubble
+                key={m.id}
+                m={m}
+                quoted={resolveQuotedFor(m)}
+                onReply={m.wa_message_id ? () => setReplyingTo(m) : undefined}
+              />
             ))}
             {pending.map((p) => (
               <div key={p.tempId} className="flex justify-end">
@@ -672,6 +783,25 @@ export default function MAsesorChatPage() {
       {sendErr ? <div className="px-3 py-1.5 bg-red-50 text-red-700 text-[12px]">{sendErr}</div> : null}
 
       <div className="sticky bottom-0 bg-white border-t border-slate-200 px-2 py-2">
+        {/* Cita activa: se arma deslizando una burbuja y se cancela con la X. */}
+        {replyingTo && !recording ? (
+          <div className="mb-2 flex items-start gap-2 rounded-xl border-l-4 border-[#3F8E91] bg-[#3F8E91]/10 px-2 py-1.5 text-[11px] text-slate-700">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-[#2F6F72]">
+                Respondiendo a {replyingTo.from_me ? "vos mismo" : "el cliente"}
+              </p>
+              <p className="mt-0.5 line-clamp-2 opacity-90">{previewForQuoted(replyingTo)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              aria-label="Cancelar cita"
+              className="shrink-0 px-1 text-slate-400 text-base leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
         {recording ? (
           <div className="flex items-center gap-2">
             <button
