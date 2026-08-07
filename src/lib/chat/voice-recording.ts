@@ -1,19 +1,23 @@
 /**
  * Utilidades de grabación de notas de voz (browser / WebView de la APK).
  *
- * WhatsApp acepta audio en mp4-aac, mpeg, amr y ogg-opus, pero NO acepta webm. Por eso
- * preferimos grabar en mp4 cuando el WebView lo soporta: el archivo viaja tal cual y no
- * depende de que el server tenga ffmpeg para transcodear (ver /api/chat/send-media).
- * Si el dispositivo solo sabe webm, se manda webm y el backend lo convierte a mp3.
+ * El backend transcodea a MP3 cualquier audio grabado (ver /api/chat/send-media), así que
+ * acá NO importa que el contenedor sea uno que WhatsApp acepte — importa que ffmpeg lo lea
+ * bien y que el WebView lo produzca de forma predecible.
+ *
+ * Por qué webm/opus primero y no mp4: el mp4 que produce MediaRecorder es fragmentado y
+ * WhatsApp lo acepta por API pero después marca el mensaje como FALLIDO. Preferir mp4
+ * (para ahorrarse el transcode) rompió las notas de voz en produccion; webm/opus es el
+ * camino probado. El mp4 queda como fallback para WebViews que no sepan grabar webm.
  */
 
 const RECORDING_MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
   "audio/mp4;codecs=mp4a.40.2",
   "audio/mp4",
   "audio/aac",
-  "audio/ogg;codecs=opus",
-  "audio/webm;codecs=opus",
-  "audio/webm",
 ];
 
 /** Primer mime soportado por el dispositivo, o "" para dejar que el MediaRecorder elija. */

@@ -25,6 +25,10 @@ import {
 import { DeliveryStatusIcon, InboundReadIcon } from "@/components/chat/DeliveryStatusIcon";
 import { extensionForMime, micErrorMessage, pickRecordingMime } from "@/lib/chat/voice-recording";
 import { SWIPE_REPLY_TRIGGER, useSwipeToReply } from "@/shared/hooks/useSwipeToReply";
+import {
+  extractWhatsappFailureInfo,
+  friendlyWhatsappFailureReason,
+} from "@/lib/chat/whatsapp-failure-reason";
 
 /**
  * Conversaciones mobile — vista funcional.
@@ -1333,6 +1337,15 @@ function MessageBubble({
             )}
           </p>
         )}
+        {/* Motivo del fallo: sin esto el ⓘ no dice nada y hay que ir a los logs. */}
+        {fromMe && message.whatsapp_delivery_status === "failed" ? (
+          <p className="mt-1 rounded-md bg-red-50 px-2 py-1 text-[10px] leading-snug text-red-700">
+            <span className="font-semibold">No entregado.</span>{" "}
+            {friendlyWhatsappFailureReason(
+              extractWhatsappFailureInfo(message.raw_payload as Record<string, unknown> | null)
+            )}
+          </p>
+        ) : null}
       </div>
     </li>
   );

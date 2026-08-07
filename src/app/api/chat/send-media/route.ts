@@ -36,8 +36,9 @@ function safeFileName(name: string): string {
 }
 
 /**
- * Convierte el audio grabado (webm/opus) -> MP3 (audio/mpeg) para enviarlo como AUDIO NORMAL
- * (no nota de voz).
+ * Convierte el audio grabado (webm/opus, mp4/aac, ogg…) -> MP3 (audio/mpeg) para enviarlo
+ * como AUDIO NORMAL (no nota de voz). ffmpeg detecta el contenedor por contenido, así que
+ * el archivo temporal de entrada va sin extensión a propósito.
  *
  * Por qué MP3 y no ogg/opus con voice:true: las NOTAS DE VOZ enviadas por la API de WhatsApp
  * (`voice: true`) son inestables del lado del receptor — aunque se entreguen (status delivered/
@@ -50,7 +51,7 @@ function safeFileName(name: string): string {
  */
 async function transcodeAudioToMp3(input: Buffer): Promise<Buffer> {
   const dir = await mkdtemp(join(tmpdir(), "ccaudio-"));
-  const inPath = join(dir, "in.webm");
+  const inPath = join(dir, "in.bin");
   const outPath = join(dir, "out.mp3");
   try {
     await writeFile(inPath, input);
@@ -183,14 +184,21 @@ export async function POST(request: NextRequest) {
     let origName = safeFileName(file.name || "archivo");
     let uploadMime = file.type || "application/octet-stream";
 
-    // El audio grabado (webm/opus del MediaRecorder, desktop y APK) se transcodea a MP3 y se
-    // envía como AUDIO NORMAL (no nota de voz). Las notas de voz por API (voice:true) llegan pero
-    // son inestables para reproducir en el cliente ("audio ya no está disponible"), incluso
-    // entregadas. El MP3 como audio normal se descarga al teléfono y se reproduce confiablemente.
-    const isAudioWebm =
+    // TODO audio que no sea MP3 se transcodea a MP3 y se envía como AUDIO NORMAL (no nota de
+    // voz). Las notas de voz por API (voice:true) llegan pero son inestables para reproducir en
+    // el cliente ("audio ya no está disponible"), incluso entregadas. El MP3 como audio normal
+    // se descarga al teléfono y se reproduce confiablemente.
+    //
+    // Por qué TODO y no solo webm: el mp4 que produce MediaRecorder es fragmentado (fMP4) y
+    // WhatsApp lo acepta por API pero después reporta el mensaje como FALLIDO por webhook —
+    // se ve la burbuja enviada y al rato queda con el ⚠. El mp4 de la cámara, que es un mp4
+    // normal, sí funciona; por eso el video anda y la nota de voz no. Normalizar todo a MP3
+    // saca de la ecuación qué contenedor haya elegido el WebView de turno.
+    const isRecordedAudio =
       originalMime.startsWith("audio/") &&
-      (originalMime.includes("webm") || /\.webm$/i.test(file.name || ""));
-    if (isAudioWebm) {
+      !originalMime.includes("mpeg") &&
+      !/\.mp3$/i.test(file.name || "");
+    if (isRecordedAudio) {
       try {
         buf = await transcodeAudioToMp3(buf);
       } catch (e) {
@@ -209,7 +217,7 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
-      origName = (origName.replace(/\.webm$/i, "") || "audio") + ".mp3";
+      origName = (origName.replace(/\.[a-z0-9]{1,5}$/i, "") || "audio") + ".mp3";
       uploadMime = "audio/mpeg";
     }
 
