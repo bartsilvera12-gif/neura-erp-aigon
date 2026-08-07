@@ -131,7 +131,11 @@ function InboxList() {
   );
 
   return (
-    <div className="mx-auto max-w-md p-4 pb-24">
+    <div
+      className="mx-auto max-w-md p-4 pb-24"
+      // Fallback fijo de 32px por si env() devuelve 0 en la WebView.
+      style={{ paddingTop: "max(env(safe-area-inset-top), 32px)" }}
+    >
       <header className="mb-3">
         <h1 className="text-xl font-bold tracking-tight text-slate-900">Conversaciones</h1>
         <p className="mt-0.5 text-xs text-slate-500">
@@ -366,7 +370,9 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             createdAt: new Date(nowMs + i).toISOString(),
             type: optType,
             content: f.name,
-            previewUrl: optType === "image" ? URL.createObjectURL(f) : undefined,
+            // Preview local: solo tipos que el <video>/<img> puede reproducir sin descargar.
+            previewUrl:
+              optType === "image" || optType === "video" ? URL.createObjectURL(f) : undefined,
             status: "sending" as const,
           },
         };
@@ -613,7 +619,10 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       {/* Header con back */}
       <header
         className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur-sm"
-        style={{ paddingTop: "calc(env(safe-area-inset-top) + 8px)" }}
+        // env(safe-area-inset-top) puede devolver 0 en algunas WebViews Android aunque
+        // viewport-fit=cover esté seteado. max(...,32px) garantiza que el header nunca
+        // se meta debajo de la status bar del sistema.
+        style={{ paddingTop: "max(env(safe-area-inset-top), 32px)" }}
       >
         <button
           type="button"
@@ -694,7 +703,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*"
+            accept="image/*,video/*"
             onChange={onPickFile}
             className="hidden"
             aria-hidden="true"
@@ -725,7 +734,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-purple-600">
                   <ImageIcon className="h-4 w-4" />
                 </span>
-                Foto o galería
+                Foto o video
               </button>
               <button
                 type="button"
@@ -1004,6 +1013,7 @@ function OptimisticBubble({ opt }: { opt: OptimisticMessage }) {
   const ts = formatHora(opt.createdAt);
   const isSticker = opt.type === "sticker";
   const isImage = opt.type === "image" && opt.previewUrl;
+  const isVideo = opt.type === "video" && opt.previewUrl;
   const isAudio = opt.type === "audio" && opt.previewUrl;
   const isDocument = opt.type === "document";
   const isText = opt.type === "text";
@@ -1023,6 +1033,13 @@ function OptimisticBubble({ opt }: { opt: OptimisticMessage }) {
             src={opt.previewUrl}
             alt="imagen"
             className="max-h-[60vh] w-full rounded-xl object-cover"
+          />
+        ) : isVideo ? (
+          <video
+            src={opt.previewUrl}
+            controls
+            preload="metadata"
+            className="max-h-[60vh] w-full rounded-xl"
           />
         ) : isSticker ? (
           <img

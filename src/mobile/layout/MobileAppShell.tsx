@@ -43,11 +43,10 @@ export default function MobileAppShell({ children }: { children: React.ReactNode
 
   if (isStandalone) {
     if (apkView) {
+      // NO aplicamos paddingTop del shell: cada pantalla lo maneja en su propio header
+      // (usa max(env(safe-area-inset-top), 32px) para cubrir el caso en que env devuelve 0).
       return (
-        <div
-          className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]"
-          style={{ paddingTop: "env(safe-area-inset-top)" }}
-        >
+        <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-[#F8FAFC]">
           {/* Registra el token FCM del dispositivo. No-op fuera de la APK nativa. */}
           <CapacitorPushRegister />
           <ApkLandingRedirect />
