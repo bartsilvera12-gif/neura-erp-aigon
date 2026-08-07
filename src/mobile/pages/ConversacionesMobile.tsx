@@ -198,29 +198,52 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     setSending(false);
   }, [text, sending, conversationId, mutate]);
 
-  /** Manejador del input file: sube fotos / documentos vía /api/chat/send-media. */
+  /** Progreso de envío múltiple: mostramos "Enviando 2/5…" en el composer. */
+  const [uploadQueue, setUploadQueue] = useState<{ current: number; total: number } | null>(null);
+
+  /** Manejador del input file: sube 1..N fotos / documentos vía /api/chat/send-media secuencial. */
   const onPickFile = useCallback(
     async (ev: React.ChangeEvent<HTMLInputElement>) => {
-      const f = ev.target.files?.[0];
-      // Reset del input para permitir seleccionar el mismo archivo dos veces seguidas.
+      const files = Array.from(ev.target.files ?? []);
+      // Reset del input para permitir seleccionar los mismos archivos dos veces seguidas.
       ev.target.value = "";
-      if (!f) return;
-      if (f.size < 1) {
-        setError("El archivo está vacío.");
+      if (files.length === 0) return;
+
+      // Validaciones rápidas antes de arrancar: si UNO falla, cancelamos todo el batch.
+      const MAX = 15 * 1024 * 1024;
+      const invalid = files.find((f) => f.size < 1 || f.size > MAX);
+      if (invalid) {
+        setError(
+          invalid.size < 1
+            ? `El archivo "${invalid.name}" está vacío.`
+            : `"${invalid.name}" supera 15 MB.`
+        );
         return;
       }
-      if (f.size > 15 * 1024 * 1024) {
-        setError("Archivo demasiado grande (máx 15 MB).");
-        return;
-      }
+
       setSending(true);
       setError(null);
-      const res = await sendMobileMediaFile({ conversationId, file: f });
-      if (!res.ok) {
-        setError(res.error ?? "No se pudo enviar el archivo.");
-      } else {
-        await mutate();
+      const errors: string[] = [];
+
+      // Secuencial: WhatsApp preserva el orden de entrega si mandamos uno a uno.
+      // Paralelo llegaría más rápido pero mezclaría el orden de los mensajes.
+      for (let i = 0; i < files.length; i++) {
+        setUploadQueue({ current: i + 1, total: files.length });
+        const res = await sendMobileMediaFile({ conversationId, file: files[i] });
+        if (!res.ok) {
+          errors.push(`${files[i].name}: ${res.error ?? "error"}`);
+        }
       }
+
+      setUploadQueue(null);
+      if (errors.length > 0) {
+        setError(
+          errors.length === files.length
+            ? "No se pudo enviar ningún archivo."
+            : `Fallaron ${errors.length}/${files.length}: ${errors[0]}`
+        );
+      }
+      await mutate();
       setSending(false);
     },
     [conversationId, mutate]
@@ -388,12 +411,20 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             <span>Grabando · {recordingLabel}</span>
             <span className="ml-auto text-red-500">Tocá el cuadrado para enviar</span>
           </div>
+        ) : uploadQueue ? (
+          <div className="mb-2 flex items-center gap-2 rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-700">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
+            <span>
+              Enviando {uploadQueue.current} de {uploadQueue.total}…
+            </span>
+          </div>
         ) : null}
         <div className="flex items-end gap-2">
           {/* Input file oculto (foto/imagen/pdf/documento). Al seleccionar se envía directo. */}
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
             onChange={onPickFile}
             className="hidden"
