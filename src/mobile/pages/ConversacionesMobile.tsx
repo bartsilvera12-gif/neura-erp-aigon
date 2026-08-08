@@ -148,16 +148,51 @@ export default function ConversacionesMobile() {
 function InboxList() {
   const { conversations, isLoading, error } = useMobileInbox();
   const [query, setQuery] = useState("");
+  // Filtro por estado del pipeline. `null` = todos. `"sin_estado"` = los sin definir.
+  // Persistido en sessionStorage para que al entrar/salir de un chat quede el filtro.
+  const [estadoFiltro, setEstadoFiltro] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.sessionStorage.getItem("mobile-inbox-estado-filtro") || null;
+    } catch {
+      return null;
+    }
+  });
+  const setEstadoFiltroPersist = useCallback((v: string | null) => {
+    setEstadoFiltro(v);
+    try {
+      if (v) window.sessionStorage.setItem("mobile-inbox-estado-filtro", v);
+      else window.sessionStorage.removeItem("mobile-inbox-estado-filtro");
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  // Conteos por estado — sobre TODAS las conversaciones (no las filtradas por texto).
+  const countsByEstado = useMemo(() => {
+    const m: Record<string, number> = { __all: conversations.length, sin_estado: 0 };
+    for (const c of conversations) {
+      const k = c.estado_pipeline ?? "sin_estado";
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  }, [conversations]);
 
   const filtered = useMemo(() => {
+    let base = conversations;
+    if (estadoFiltro) {
+      base = base.filter((c) =>
+        estadoFiltro === "sin_estado" ? !c.estado_pipeline : c.estado_pipeline === estadoFiltro
+      );
+    }
     const q = query.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter((c) => {
+    if (!q) return base;
+    return base.filter((c) => {
       const nombre = (c.contact_nombre ?? c.contact_telefono ?? "").toLowerCase();
       const preview = (c.last_message_preview ?? "").toLowerCase();
       return nombre.includes(q) || preview.includes(q);
     });
-  }, [conversations, query]);
+  }, [conversations, query, estadoFiltro]);
 
   const totalUnread = useMemo(
     () => conversations.reduce((s, c) => s + (c.unread_count ?? 0), 0),
@@ -190,6 +225,39 @@ function InboxList() {
           onChange={(e) => setQuery(e.target.value)}
           className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#4FAEB2]/40 focus:outline-none focus:ring-2 focus:ring-[#4FAEB2]/30"
         />
+      </div>
+
+      {/* Tabs por estado del pipeline. Scroll horizontal en pantallas chicas. */}
+      <div className="mb-3 -mx-4 overflow-x-auto px-4 pb-1">
+        <div className="flex gap-1.5">
+          <PipelineTab
+            active={estadoFiltro === null}
+            onClick={() => setEstadoFiltroPersist(null)}
+            label="Todos"
+            count={countsByEstado.__all}
+          />
+          {PIPELINE_ESTADOS_ORDER.map((k) => {
+            const info = pipelineEstadoInfo(k)!;
+            return (
+              <PipelineTab
+                key={k}
+                active={estadoFiltro === k}
+                onClick={() => setEstadoFiltroPersist(k)}
+                label={`${info.emoji} ${info.shortLabel}`}
+                count={countsByEstado[k] ?? 0}
+                activeColor={info.dot}
+                activeBg={info.bg}
+                activeFg={info.fg}
+              />
+            );
+          })}
+          <PipelineTab
+            active={estadoFiltro === "sin_estado"}
+            onClick={() => setEstadoFiltroPersist("sin_estado")}
+            label="Sin estado"
+            count={countsByEstado.sin_estado ?? 0}
+          />
+        </div>
       </div>
 
       {error ? (
@@ -261,6 +329,56 @@ function ConversationCard({ conv }: { conv: MobileChatConversation }) {
         </div>
       </a>
     </li>
+  );
+}
+
+/**
+ * Tab del inbox para filtrar por estado del pipeline.
+ * Al tocar, la lista se recorta a las conversaciones con ese estado.
+ */
+function PipelineTab({
+  active,
+  onClick,
+  label,
+  count,
+  activeColor,
+  activeBg,
+  activeFg,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  activeColor?: string;
+  activeBg?: string;
+  activeFg?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold whitespace-nowrap transition-colors ${
+        active ? "" : "border-slate-200 bg-white text-slate-600"
+      }`}
+      style={
+        active
+          ? {
+              borderColor: activeColor ?? "#4FAEB2",
+              backgroundColor: activeBg ?? "#4FAEB2",
+              color: activeFg ?? "#FFFFFF",
+            }
+          : undefined
+      }
+    >
+      {label}
+      <span
+        className={`ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] ${
+          active ? "bg-white/80 text-slate-700" : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
   );
 }
 
