@@ -26,8 +26,9 @@ export type ChatThemeColors = {
 };
 
 const LIGHT: ChatThemeColors = {
-  bg: "#E5DDD5",       // beige clásico WhatsApp
-  inboundBg: "#FFFFFF",
+  bg: "#FFFFFF",
+  // Inbound sobre fondo blanco: un gris muy suave para distinguirse sin ruido.
+  inboundBg: "#F1F5F9",
   inboundText: "#0F172A",
   inboundMeta: "#64748B",
 };
