@@ -187,10 +187,16 @@ async function pgFetchConversationsWithColumns(
   limit?: number
 ): Promise<Record<string, unknown>[] | null> {
   const qt = quoteSchemaTable(schema, "chat_conversations");
+  // `estado_pipeline` y `seguimiento_fecha` son columnas nuevas (migración
+  // 20260808120000). En tenants viejos que aún no la corrieron, el SELECT falla y
+  // baja a `legacy`/`min` sin esas columnas — la conversación se muestra con estado
+  // "sin definir" hasta que se aplique la migración. Sin fallback silencioso: si
+  // aparece un error de columna desconocida, se propaga.
   const colsFull = `
     id, status, priority, queue_id, assignment_wait_code, assigned_agent_id,
     last_message_at, last_message_preview, unread_count, contact_id, channel_id,
-    flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id
+    flow_code, flow_current_node, flow_status, human_taken_over, active_flow_session_id,
+    estado_pipeline, seguimiento_fecha
   `;
   const colsLegacy = `
     id, status, priority, queue_id, assigned_agent_id,
@@ -948,6 +954,16 @@ export async function fetchChatConversationsFromTenantPg(
       flow_current_node: (() => {
         const n = String((row as { flow_current_node?: string | null }).flow_current_node ?? "").trim();
         return n || null;
+      })(),
+      estado_pipeline: (() => {
+        const v = (row as { estado_pipeline?: string | null }).estado_pipeline;
+        return typeof v === "string" && v.trim() ? v.trim() : null;
+      })(),
+      seguimiento_fecha: (() => {
+        const v = (row as { seguimiento_fecha?: string | null }).seguimiento_fecha;
+        if (v == null) return null;
+        // Postgres devuelve date como YYYY-MM-DD ó Date; normalizamos a string.
+        return typeof v === "string" ? v : String(v).slice(0, 10);
       })(),
       channel: {
         id: channelId,

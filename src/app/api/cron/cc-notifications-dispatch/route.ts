@@ -36,6 +36,7 @@ const TITLES: Record<string, string> = {
   new_message: "Nuevo mensaje",
   reassigned: "Conversación reasignada",
   sla_warning: "Lead sin responder",
+  seguimiento_hoy: "Seguimiento programado para hoy",
 };
 
 async function handle(req: NextRequest) {

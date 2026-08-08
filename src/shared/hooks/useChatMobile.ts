@@ -13,6 +13,10 @@ export type MobileChatConversation = {
   contact_telefono: string | null;
   channel_name: string | null;
   channel_provider: string | null;
+  /** Estado del pipeline de ventas (chip de color en la card). Null = sin definir. */
+  estado_pipeline: string | null;
+  /** Solo aplica si estado_pipeline === 'seguimiento'. Formato YYYY-MM-DD. */
+  seguimiento_fecha: string | null;
 };
 
 export type MobileChatMessage = {
@@ -126,6 +130,40 @@ export async function sendMobileMessage(opts: {
     if (!res.ok) {
       const text = await res.text();
       return { ok: false, error: text || `Error ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red" };
+  }
+}
+
+/**
+ * Cambia el estado del pipeline de ventas de una conversación.
+ * `seguimiento_fecha` es requerido para estado='seguimiento' (YYYY-MM-DD).
+ * `venta_monto` es requerido para estado='pagado_entregado' (número).
+ */
+export async function setPipelineEstado(opts: {
+  conversationId: string;
+  estado: "nuevo" | "seguimiento" | "confirmado" | "pagado_entregado" | "perdido";
+  seguimientoFecha?: string | null;
+  ventaMonto?: number | null;
+  notas?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetchWithSupabaseSession("/api/chat/pipeline-estado", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: opts.conversationId,
+        estado: opts.estado,
+        seguimiento_fecha: opts.seguimientoFecha ?? null,
+        venta_monto: opts.ventaMonto ?? null,
+        notas: opts.notas ?? null,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) {
+      return { ok: false, error: json.error ?? `Error ${res.status}` };
     }
     return { ok: true };
   } catch (e) {

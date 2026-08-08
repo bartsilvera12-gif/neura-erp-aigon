@@ -141,6 +141,10 @@ export type InboxConversation = {
   flow_code: string | null;
   /** Nodo actual del motor (`chat_conversations.flow_current_node`), si existe. */
   flow_current_node: string | null;
+  /** Estado del pipeline de ventas — chip de color. Null = sin definir. */
+  estado_pipeline: string | null;
+  /** Solo aplica si estado_pipeline === 'seguimiento'. Formato YYYY-MM-DD. */
+  seguimiento_fecha: string | null;
   channel: {
     id: string;
     type: string;
@@ -402,7 +406,9 @@ async function fetchChatConversationsUnsafe(
       flow_current_node,
       flow_status,
       human_taken_over,
-      active_flow_session_id
+      active_flow_session_id,
+      estado_pipeline,
+      seguimiento_fecha
     `;
   const convSelectLegacy = `
       id,
@@ -1094,6 +1100,15 @@ async function fetchChatConversationsUnsafe(
       flow_current_node: (() => {
         const n = String((row as { flow_current_node?: string | null }).flow_current_node ?? "").trim();
         return n || null;
+      })(),
+      estado_pipeline: (() => {
+        const v = (row as { estado_pipeline?: string | null }).estado_pipeline;
+        return typeof v === "string" && v.trim() ? v.trim() : null;
+      })(),
+      seguimiento_fecha: (() => {
+        const v = (row as { seguimiento_fecha?: string | null }).seguimiento_fecha;
+        if (v == null) return null;
+        return typeof v === "string" ? v : String(v).slice(0, 10);
       })(),
       channel: {
         id: channelId,

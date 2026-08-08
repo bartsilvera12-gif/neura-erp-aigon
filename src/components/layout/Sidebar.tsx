@@ -38,6 +38,7 @@ import {
   CalendarDays,
   BarChart3,
   HandCoins,
+  GitBranch,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -143,6 +144,13 @@ const MENU_STRUCTURE_ALL: MenuItem[] = [
     label: "Monitoreo",
     href: "/dashboard/monitoreo",
     icon: Activity,
+  },
+  {
+    key: "pipeline-ventas",
+    slug: "pipeline-ventas",
+    label: "Pipeline Ventas",
+    href: "/dashboard/pipeline-ventas",
+    icon: GitBranch,
   },
   { key: "ventas", slug: "ventas", label: "Caja", href: "/ventas", icon: ShoppingCart },
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [

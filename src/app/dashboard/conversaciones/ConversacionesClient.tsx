@@ -45,7 +45,8 @@ import { INBOX_HEARTBEAT_INTERVAL_MS } from "@/lib/chat/agent-presence";
 import { formatWaitHuman } from "@/lib/chat/format-wait-human";
 import { friendlyWhatsappFailureReason, extractWhatsappFailureInfo } from "@/lib/chat/whatsapp-failure-reason";
 import { listActiveQuickRepliesForChannel } from "@/lib/chat/quick-replies-actions";
-import { ArrowLeftRight, FileText, Flame, Mic, Paperclip, RefreshCw, Square, UserRound, Zap } from "lucide-react";
+import { ArrowLeftRight, FileText, Flame, Mic, Moon, Paperclip, RefreshCw, Square, Sun, UserRound, Zap } from "lucide-react";
+import { useChatTheme } from "@/shared/hooks/useChatTheme";
 import {
   extractBodyPlaceholderKeysOrdered,
   getBodyComponentText,
@@ -66,6 +67,11 @@ import {
   isImageMimeHint,
 } from "@/lib/chat/message-erp-display";
 import { assignmentWaitBadge, assignmentWaitBadgeClass } from "@/lib/chat/inbox-assignment-labels";
+import {
+  PIPELINE_ESTADOS_ORDER,
+  pipelineEstadoInfo,
+  type PipelineEstado,
+} from "@/lib/chat/pipeline-estado";
 import type { OmnicanalOperatorRole } from "@/lib/chat/omnicanal-supervision-read";
 import { playInboxNotificationBeep, readInboxNotificationSoundEnabled } from "@/lib/chat/inbox-notification-preference";
 import { createBrowserClientForSchema } from "@/lib/supabase";
@@ -454,6 +460,10 @@ export function ConversacionesClient({
   const [opsAgentLoads, setOpsAgentLoads] = useState<SupervisorAgentLoadRow[]>([]);
   const [opsBusy, setOpsBusy] = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
+  /** Modal para cambiar el estado del pipeline de la conversación seleccionada. */
+  const [pipelineEstadoModalOpen, setPipelineEstadoModalOpen] = useState(false);
+  /** Tema del área de mensajes (claro/oscuro, persistido en localStorage). */
+  const { isDark: chatIsDark, colors: chatThemeColors, toggle: toggleChatTheme } = useChatTheme();
   /** Cola elegida: transferencia a cola y filtro de agentes en el modal. */
   const [transferQueueTarget, setTransferQueueTarget] = useState("");
   const [transferAgentSearch, setTransferAgentSearch] = useState("");
@@ -2340,6 +2350,19 @@ export function ConversacionesClient({
         </div>
       ) : null}
 
+      {pipelineEstadoModalOpen && selected ? (
+        <PipelineEstadoDesktopModal
+          conversationId={selected.id}
+          estadoActual={selected.estado_pipeline}
+          fechaActual={selected.seguimiento_fecha}
+          onClose={() => setPipelineEstadoModalOpen(false)}
+          onSaved={() => {
+            setPipelineEstadoModalOpen(false);
+            void loadConversations();
+          }}
+        />
+      ) : null}
+
       {transferModalOpen && selected && vista !== "bot" ? (
         <div
           className="fixed inset-0 z-[115] flex items-center justify-center bg-black/40 p-4"
@@ -2929,6 +2952,21 @@ export function ConversacionesClient({
                       </p>
                     </div>
                   </div>
+                  {(() => {
+                    const info = pipelineEstadoInfo(c.estado_pipeline);
+                    return info ? (
+                      <div className="mt-1 flex">
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+                          style={{ backgroundColor: info.bg, color: info.fg }}
+                          title={info.label}
+                        >
+                          <span aria-hidden>{info.emoji}</span>
+                          {info.shortLabel}
+                        </span>
+                      </div>
+                    ) : null;
+                  })()}
                   {!esAsesor ? (
                   <div className="flex flex-wrap gap-1 mt-1">
                     <span
@@ -3068,6 +3106,42 @@ export function ConversacionesClient({
                           </div>
 
                           <div className="flex flex-wrap items-center justify-end gap-1.5">
+                            {/* Toggle claro/oscuro del área de mensajes */}
+                            <button
+                              type="button"
+                              onClick={toggleChatTheme}
+                              aria-label={chatIsDark ? "Modo claro" : "Modo oscuro"}
+                              title={chatIsDark ? "Modo claro" : "Modo oscuro"}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100"
+                            >
+                              {chatIsDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                            </button>
+                            {/* Botón/chip de estado del pipeline. Al click abre modal. */}
+                            {(() => {
+                              const info = pipelineEstadoInfo(selected.estado_pipeline);
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setPipelineEstadoModalOpen(true)}
+                                  className="inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-colors"
+                                  style={
+                                    info
+                                      ? { borderColor: info.dot, backgroundColor: info.bg, color: info.fg }
+                                      : { borderColor: "#e2e8f0", backgroundColor: "#fff", color: "#475569" }
+                                  }
+                                  title="Cambiar estado del pipeline"
+                                >
+                                  {info ? (
+                                    <>
+                                      <span aria-hidden>{info.emoji}</span>
+                                      <span>{info.shortLabel}</span>
+                                    </>
+                                  ) : (
+                                    <>+ Estado</>
+                                  )}
+                                </button>
+                              );
+                            })()}
                             {vista !== "bot" ? (
                               <button
                                 type="button"
@@ -3423,7 +3497,8 @@ export function ConversacionesClient({
               <div
                 ref={messagesScrollRef}
                 onScroll={onMessagesScroll}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-1 space-y-0 bg-gradient-to-b from-slate-100/90 to-slate-50/40"
+                className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 py-1 space-y-0"
+                style={{ backgroundColor: chatThemeColors.bg }}
               >
                 {loadingMsg ? (
                   <div className="text-center text-slate-400 text-sm py-8">Cargando mensajes…</div>
@@ -3454,8 +3529,18 @@ export function ConversacionesClient({
                           className={`max-w-[92%] sm:max-w-[88%] md:max-w-[78%] lg:max-w-[72%] rounded-2xl px-3 py-2 text-[13px] sm:text-sm leading-relaxed ${
                             m.from_me
                               ? "bg-[#4FAEB2] text-white rounded-br-md shadow-md shadow-[#4FAEB2]/25 ring-1 ring-white/15"
-                              : "bg-white text-slate-800 rounded-bl-md border border-slate-200 shadow-sm border-l-[3px] border-l-[#4FAEB2]/55"
+                              : "rounded-bl-md border shadow-sm border-l-[3px] border-l-[#4FAEB2]/55"
                           }`}
+                          // Burbuja entrante: color según tema (light=blanco, dark=#202C33). Saliente queda teal fijo.
+                          style={
+                            !m.from_me
+                              ? {
+                                  backgroundColor: chatThemeColors.inboundBg,
+                                  color: chatThemeColors.inboundText,
+                                  borderColor: chatIsDark ? "#2A3942" : "#E2E8F0",
+                                }
+                              : undefined
+                          }
                         >
                           {showAsImage && attachUrl ? (
                             <div className="space-y-2">
@@ -3941,6 +4026,176 @@ export function ConversacionesClient({
               </form>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Modal para cambiar el estado del pipeline de una conversación (versión desktop).
+ * Igual comportamiento que el mobile: 5 opciones, pide fecha si es Seguimiento y
+ * monto si es Pagado y Entregado.
+ */
+function PipelineEstadoDesktopModal({
+  conversationId,
+  estadoActual,
+  fechaActual,
+  onClose,
+  onSaved,
+}: {
+  conversationId: string;
+  estadoActual: string | null;
+  fechaActual: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<PipelineEstado | null>(
+    (estadoActual as PipelineEstado | null) ?? null
+  );
+  const [fecha, setFecha] = useState<string>(fechaActual ?? "");
+  const [monto, setMonto] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const info = selected ? pipelineEstadoInfo(selected) : null;
+
+  const submit = async () => {
+    if (!selected || !info) {
+      setError("Elegí un estado");
+      return;
+    }
+    if (info.needsDate && !fecha) {
+      setError("Fecha requerida");
+      return;
+    }
+    if (info.needsAmount) {
+      const n = Number(monto);
+      if (!Number.isFinite(n) || n < 0) {
+        setError("Monto requerido (>= 0)");
+        return;
+      }
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetchWithSupabaseSession("/api/chat/pipeline-estado", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          estado: selected,
+          seguimiento_fecha: info.needsDate ? fecha : null,
+          venta_monto: info.needsAmount ? Number(monto) : null,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !j.ok) {
+        setError(j.error ?? `Error ${res.status}`);
+        return;
+      }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[115] flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-slate-900">Estado del pipeline</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm text-slate-500 hover:text-slate-700"
+          >
+            Cerrar
+          </button>
+        </div>
+        <ul className="space-y-1.5">
+          {PIPELINE_ESTADOS_ORDER.map((k) => {
+            const it = pipelineEstadoInfo(k)!;
+            const active = selected === k;
+            return (
+              <li key={k}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(k)}
+                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm ${
+                    active ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="text-lg" aria-hidden>{it.emoji}</span>
+                  <span className="flex-1 font-medium text-slate-800">{it.label}</span>
+                  {active ? (
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: it.dot }} />
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        {info?.needsDate ? (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Fecha de seguimiento
+            </label>
+            <input
+              type="date"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              min={new Date().toISOString().slice(0, 10)}
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              El vendedor recibirá una notificación push ese día.
+            </p>
+          </div>
+        ) : null}
+        {info?.needsAmount ? (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Monto de la venta (Gs)
+            </label>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={monto}
+              onChange={(e) => setMonto(e.target.value)}
+              placeholder="0"
+              min={0}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums"
+            />
+          </div>
+        ) : null}
+        {error ? (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
+        ) : null}
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-slate-300 py-2 text-sm font-semibold text-slate-700"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={saving || !selected}
+            className="flex-1 rounded-lg bg-[#4FAEB2] py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
         </div>
       </div>
     </div>

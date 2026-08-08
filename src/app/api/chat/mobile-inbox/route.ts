@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
       unread_count: number | null;
       contact_id: string | null;
       channel_id: string | null;
+      estado_pipeline: string | null;
+      seguimiento_fecha: string | null;
     };
 
     // Candidatas (ventana amplia) ordenadas por actividad. El scope omnicanal se aplica con el
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
     const { data: convs, error } = await supabase
       .from("chat_conversations")
       .select(
-        "id, status, last_message_at, last_message_preview, unread_count, contact_id, channel_id"
+        "id, status, last_message_at, last_message_preview, unread_count, contact_id, channel_id, estado_pipeline, seguimiento_fecha"
       )
       .eq("empresa_id", empresaId)
       .in("status", statusList)
@@ -119,6 +121,8 @@ export async function GET(request: NextRequest) {
         contact_telefono: contact?.telefono ?? null,
         channel_name: channel?.name ?? null,
         channel_provider: channel?.provider ?? null,
+        estado_pipeline: r.estado_pipeline ?? null,
+        seguimiento_fecha: r.seguimiento_fecha ?? null,
       };
     });
 

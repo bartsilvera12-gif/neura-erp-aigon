@@ -12,6 +12,7 @@ const SIDEBAR_SLUG_HREF_ORDER: { slug: string; href: string }[] = [
   { slug: "historial-omnicanal", href: "/dashboard/historial-omnicanal" },
   { slug: "conversaciones-finalizadas", href: "/dashboard/conversaciones-finalizadas" },
   { slug: "monitoreo", href: "/dashboard/monitoreo" },
+  { slug: "pipeline-ventas", href: "/dashboard/pipeline-ventas" },
   { slug: "ventas", href: "/ventas" },
   { slug: "inventario", href: "/inventario" },
   { slug: "clientes", href: "/clientes" },

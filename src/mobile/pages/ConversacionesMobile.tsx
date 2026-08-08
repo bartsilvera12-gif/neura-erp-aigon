@@ -5,8 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // OJO: el ícono `File` va aliasado. Importarlo con su nombre tapa el constructor global
 // `File` del browser y `new File([blob], …)` de la nota de voz devuelve un componente en
 // vez de un archivo → el audio se subía vacío y WhatsApp nunca lo recibía.
-import { AlertCircle, ArrowLeft, Camera, Clock, File as FileIcon, FileText, Image as ImageIcon, Mic, MessageCircle, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Trash2, Video, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, Clock, File as FileIcon, FileText, Image as ImageIcon, Mic, MessageCircle, Moon, Paperclip, Reply, RotateCw, Search, Send, Smile, Square, Star, Sun, Tag, Trash2, Video, X } from "lucide-react";
+import { useChatTheme, type ChatThemeColors } from "@/shared/hooks/useChatTheme";
 import { EMOJI_CATEGORIES } from "@/mobile/data/emojis";
+import {
+  PIPELINE_ESTADOS_ORDER,
+  pipelineEstadoInfo,
+  type PipelineEstado,
+} from "@/lib/chat/pipeline-estado";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
   attachmentCaptionForDisplay,
@@ -17,6 +23,7 @@ import {
 import {
   sendMobileMediaFile,
   sendMobileMessage,
+  setPipelineEstado,
   useMobileInbox,
   useMobileMessages,
   type MobileChatConversation,
@@ -243,14 +250,35 @@ function ConversationCard({ conv }: { conv: MobileChatConversation }) {
           <p className={`truncate text-[12px] ${unread ? "text-slate-700" : "text-slate-500"}`}>
             {conv.last_message_preview ?? "Sin mensajes"}
           </p>
-          {conv.channel_name ? (
-            <p className="mt-0.5 text-[10px] uppercase tracking-wider text-slate-400">
-              {conv.channel_name}
-            </p>
-          ) : null}
+          <div className="mt-0.5 flex items-center gap-2">
+            {conv.channel_name ? (
+              <p className="text-[10px] uppercase tracking-wider text-slate-400">
+                {conv.channel_name}
+              </p>
+            ) : null}
+            <PipelineChip estado={conv.estado_pipeline} />
+          </div>
         </div>
       </a>
     </li>
+  );
+}
+
+/**
+ * Chip pequeño con emoji + label corto del estado del pipeline.
+ * No renderiza nada si estado es null.
+ */
+function PipelineChip({ estado }: { estado: string | null | undefined }) {
+  const info = pipelineEstadoInfo(estado);
+  if (!info) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-[1px] text-[9px] font-semibold uppercase tracking-wide"
+      style={{ backgroundColor: info.bg, color: info.fg }}
+    >
+      <span aria-hidden>{info.emoji}</span>
+      {info.shortLabel}
+    </span>
   );
 }
 
@@ -258,11 +286,14 @@ function ConversationCard({ conv }: { conv: MobileChatConversation }) {
 
 function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack: () => void }) {
   const { messages, isLoading, mutate } = useMobileMessages(conversationId);
-  const { conversations } = useMobileInbox();
+  const { conversations, mutate: mutateInbox } = useMobileInbox();
   const conv = useMemo(
     () => conversations.find((c) => c.id === conversationId),
     [conversations, conversationId]
   );
+  /** Modal para elegir/cambiar estado del pipeline. */
+  const [pipelineModalOpen, setPipelineModalOpen] = useState(false);
+  const { isDark, colors: themeColors, toggle: toggleTheme } = useChatTheme();
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -805,10 +836,51 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
             <p className="truncate text-[11px] text-slate-500">{conv.channel_name}</p>
           ) : null}
         </div>
+        {/* Toggle claro/oscuro para el área de mensajes */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          aria-label={isDark ? "Modo claro" : "Modo oscuro"}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-600 transition-colors hover:bg-slate-100"
+        >
+          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+        {/* Botón de estado pipeline: si hay estado muestra el chip, si no botón "Estado" */}
+        <button
+          type="button"
+          onClick={() => setPipelineModalOpen(true)}
+          aria-label="Cambiar estado del pipeline"
+          className="flex h-9 shrink-0 items-center gap-1 rounded-full border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition-colors active:scale-[0.98]"
+          style={(() => {
+            const info = pipelineEstadoInfo(conv?.estado_pipeline);
+            return info
+              ? { borderColor: info.dot, backgroundColor: info.bg, color: info.fg }
+              : undefined;
+          })()}
+        >
+          {(() => {
+            const info = pipelineEstadoInfo(conv?.estado_pipeline);
+            return info ? (
+              <>
+                <span aria-hidden>{info.emoji}</span>
+                <span>{info.shortLabel}</span>
+              </>
+            ) : (
+              <>
+                <Tag className="h-3.5 w-3.5" />
+                <span>Estado</span>
+              </>
+            );
+          })()}
+        </button>
       </header>
 
       {/* Mensajes */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-3 py-3">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        style={{ backgroundColor: themeColors.bg }}
+      >
         {isLoading && messages.length === 0 ? (
           <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -834,6 +906,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 onSaveIncomingSticker={() => setSaveStickerFor(m)}
                 onLongPress={() => setMessageMenu(m)}
                 onSwipeReply={() => setReplyingTo(m)}
+                themeColors={themeColors}
               />
             ))}
             {optimistic.map((m) => (
@@ -1131,6 +1204,195 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           onConfirm={onSaveIncomingSticker}
         />
       ) : null}
+
+      {/* Modal selector de estado del pipeline */}
+      {pipelineModalOpen ? (
+        <PipelineEstadoModal
+          conversationId={conversationId}
+          estadoActual={conv?.estado_pipeline ?? null}
+          fechaActual={conv?.seguimiento_fecha ?? null}
+          onClose={() => setPipelineModalOpen(false)}
+          onSaved={() => {
+            setPipelineModalOpen(false);
+            // Refrescar inbox para que el chip del header y la card se actualicen.
+            void mutateInbox();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Modal bottom-sheet para elegir estado del pipeline. Muestra 5 opciones + pedido de
+ * fecha (Seguimiento) o monto (Pagado y Entregado). El submit llama al endpoint y
+ * mueve el estado local vía el callback onSaved (que hace mutateInbox).
+ */
+function PipelineEstadoModal({
+  conversationId,
+  estadoActual,
+  fechaActual,
+  onClose,
+  onSaved,
+}: {
+  conversationId: string;
+  estadoActual: string | null;
+  fechaActual: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<PipelineEstado | null>(
+    (estadoActual as PipelineEstado | null) ?? null
+  );
+  const [fecha, setFecha] = useState<string>(fechaActual ?? "");
+  const [monto, setMonto] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const info = selected ? pipelineEstadoInfo(selected) : null;
+
+  const submit = async () => {
+    if (!selected || !info) {
+      setError("Elegí un estado");
+      return;
+    }
+    if (info.needsDate && !fecha) {
+      setError("Fecha requerida para seguimiento");
+      return;
+    }
+    if (info.needsAmount) {
+      const n = Number(monto);
+      if (!Number.isFinite(n) || n < 0) {
+        setError("Monto requerido (>= 0)");
+        return;
+      }
+    }
+    setSaving(true);
+    setError(null);
+    const res = await setPipelineEstado({
+      conversationId,
+      estado: selected,
+      seguimientoFecha: info.needsDate ? fecha : null,
+      ventaMonto: info.needsAmount ? Number(monto) : null,
+    });
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error ?? "No se pudo guardar");
+      return;
+    }
+    onSaved();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-lg"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-slate-900">Estado del pipeline</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <ul className="space-y-1.5">
+          {PIPELINE_ESTADOS_ORDER.map((k) => {
+            const it = pipelineEstadoInfo(k)!;
+            const active = selected === k;
+            return (
+              <li key={k}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(k)}
+                  className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
+                    active
+                      ? "border-slate-900 bg-slate-50"
+                      : "border-slate-200 bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="text-lg" aria-hidden>
+                    {it.emoji}
+                  </span>
+                  <span className="flex-1 font-medium text-slate-800">{it.label}</span>
+                  {active ? (
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: it.dot }}
+                    />
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+
+        {info?.needsDate ? (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Fecha de seguimiento
+            </label>
+            <input
+              type="date"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              min={new Date().toISOString().slice(0, 10)}
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Recibirás una notificación push ese día.
+            </p>
+          </div>
+        ) : null}
+
+        {info?.needsAmount ? (
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Monto de la venta (Gs)
+            </label>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={monto}
+              onChange={(e) => setMonto(e.target.value)}
+              placeholder="0"
+              min={0}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm tabular-nums"
+            />
+          </div>
+        ) : null}
+
+        {error ? (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
+        ) : null}
+
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-semibold text-slate-700"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={saving || !selected}
+            className="flex-1 rounded-lg bg-[#4FAEB2] py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {saving ? "Guardando..." : "Guardar"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1141,6 +1403,7 @@ function MessageBubble({
   onSaveIncomingSticker,
   onLongPress,
   onSwipeReply,
+  themeColors,
 }: {
   message: MobileChatMessage;
   /** Mensaje al que este responde (resuelto por wa_message_id). */
@@ -1149,6 +1412,8 @@ function MessageBubble({
   onLongPress?: () => void;
   /** Deslizar la burbuja en horizontal (como WhatsApp) para citarla. */
   onSwipeReply?: () => void;
+  /** Paleta compartida (light/dark). Aplica solo a burbujas ENTRANTES; salientes siguen teal. */
+  themeColors: ChatThemeColors;
 }) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
@@ -1233,13 +1498,19 @@ function MessageBubble({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
-        style={swipe.style}
+        style={
+          // Inbound + no sticker: mergeamos color de tema encima del transform de swipe.
+          // Saliente (teal fijo) y sticker (sin burbuja) usan solo swipe.style.
+          !fromMe && !isSticker
+            ? { ...(swipe.style ?? {}), backgroundColor: themeColors.inboundBg, color: themeColors.inboundText }
+            : swipe.style
+        }
         className={`relative max-w-[80%] select-none overflow-visible rounded-2xl text-sm shadow-[0_1px_1px_rgba(15,23,42,0.04)] ${
           isSticker
             ? "bg-transparent shadow-none"
             : fromMe
               ? "rounded-br-sm bg-[#4FAEB2] text-white"
-              : "rounded-bl-sm bg-white text-slate-800"
+              : "rounded-bl-sm"
         } ${isSticker ? "" : "px-3 py-2"}`}
       >
         {/* Bloque de cita (mensaje al que este responde). */}
