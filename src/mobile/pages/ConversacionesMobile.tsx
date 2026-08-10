@@ -491,16 +491,20 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
 
   /**
    * Índice de reacciones por wa_message_id del mensaje al que apuntan.
-   * Cada entrada agrupa reacciones por emoji con conteo, indicando además si
-   * "vos" (el vendedor) reaccionó — para pintar borde propio.
    *
-   * Meta manda las reacciones como mensajes con message_type='reaction' y:
-   *   - reaction.message_id (webhook entrante — desde el cliente)
-   *   - erp.reaction_target_wa_message_id (envío nuestro desde el ERP)
+   * Modelo Meta: por mensaje, cada persona (vendedor y cliente) tiene UNA
+   * reacción viva. Si vuelven a reaccionar, sobrescribe; si mandan emoji vacío,
+   * queda sin reacción. El histórico llega como sucesión de mensajes
+   * type='reaction' — nos importa SOLO la más nueva por reactor.
+   *
+   * `messages` viene ordenado por created_at ascendente, así que la última
+   * iteración por reactor gana.
    */
   type ReactionInfo = { emoji: string; count: number; ownedByMe: boolean };
   const reactionsByTarget = useMemo(() => {
-    const map = new Map<string, ReactionInfo[]>();
+    // Paso 1: latest emoji por (target, reactor). reactor = "me" | "them".
+    type Latest = { me?: string; them?: string };
+    const latestByTarget = new Map<string, Latest>();
     for (const m of messages) {
       if ((m.message_type || "").toLowerCase() !== "reaction") continue;
       const raw = (m.raw_payload ?? null) as
@@ -512,18 +516,28 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
       const target = raw?.reaction?.message_id ?? raw?.erp?.reaction_target_wa_message_id ?? "";
       if (!target) continue;
       const emoji = (raw?.reaction?.emoji ?? m.content ?? "").trim();
-      // Emoji vacío = retiro de reacción (Meta). Lo ignoramos para no mostrar
-      // reacciones "vacías". La retirada se refleja porque no acumula.
-      if (!emoji) continue;
-      const arr = map.get(target) ?? [];
-      const existing = arr.find((r) => r.emoji === emoji);
-      if (existing) {
-        existing.count += 1;
-        if (m.from_me) existing.ownedByMe = true;
-      } else {
-        arr.push({ emoji, count: 1, ownedByMe: m.from_me });
-      }
-      map.set(target, arr);
+      const entry: Latest = latestByTarget.get(target) ?? {};
+      if (m.from_me) entry.me = emoji;
+      else entry.them = emoji;
+      latestByTarget.set(target, entry);
+    }
+    // Paso 2: agrupar por emoji, conteo + ownership.
+    const map = new Map<string, ReactionInfo[]>();
+    for (const [target, entry] of latestByTarget) {
+      const arr: ReactionInfo[] = [];
+      const bump = (emoji: string, mine: boolean) => {
+        if (!emoji) return; // emoji vacío = reacción retirada
+        const existing = arr.find((r) => r.emoji === emoji);
+        if (existing) {
+          existing.count += 1;
+          if (mine) existing.ownedByMe = true;
+        } else {
+          arr.push({ emoji, count: 1, ownedByMe: mine });
+        }
+      };
+      bump(entry.me ?? "", true);
+      bump(entry.them ?? "", false);
+      if (arr.length > 0) map.set(target, arr);
     }
     return map;
   }, [messages]);
