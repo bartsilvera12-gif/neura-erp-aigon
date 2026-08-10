@@ -1631,22 +1631,43 @@ function MessageBubble({
               : "rounded-bl-sm"
         } ${isSticker ? "" : "px-3 py-2"}`}
       >
-        {/* Bloque de cita (mensaje al que este responde). */}
+        {/* Bloque de cita (mensaje al que este responde). Si la cita es una
+            imagen/video/sticker, mostramos un thumbnail al costado del texto. */}
         {quotedMessage && !isSticker ? (
-          <div
-            className={`mb-1.5 rounded-lg border-l-4 px-2 py-1 text-[11px] ${
-              fromMe
-                ? "border-white/60 bg-white/15 text-white/90"
-                : "border-[#4FAEB2] bg-[#4FAEB2]/8 text-slate-700"
-            }`}
-          >
-            <p className="truncate font-medium">
-              {quotedMessage.from_me ? "Vos" : "Cliente"}
-            </p>
-            <p className="line-clamp-2 opacity-90">
-              {previewForQuoted(quotedMessage)}
-            </p>
-          </div>
+          (() => {
+            const qRaw = (quotedMessage.raw_payload ?? null) as RawPayload;
+            const qUrl =
+              getErpAttachmentPublicUrl(qRaw) ?? getWhatsAppMediaUrlFromRawPayload(qRaw);
+            const qType = quotedMessage.message_type || "text";
+            const showThumb = Boolean(qUrl) && (qType === "image" || qType === "sticker" || qType === "video");
+            return (
+              <div
+                className={`mb-1.5 flex items-start gap-2 rounded-lg border-l-4 px-2 py-1 text-[11px] ${
+                  fromMe
+                    ? "border-white/60 bg-white/15 text-white/90"
+                    : "border-[#4FAEB2] bg-[#4FAEB2]/8 text-slate-700"
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">
+                    {quotedMessage.from_me ? "Vos" : "Cliente"}
+                  </p>
+                  <p className="line-clamp-2 opacity-90">
+                    {previewForQuoted(quotedMessage)}
+                  </p>
+                </div>
+                {showThumb ? (
+                  <img
+                    src={qUrl!}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-md object-cover"
+                    draggable={false}
+                    style={{ pointerEvents: "none" } as React.CSSProperties}
+                  />
+                ) : null}
+              </div>
+            );
+          })()
         ) : null}
         {canSaveSticker ? (
           <button
@@ -1669,6 +1690,16 @@ function MessageBubble({
                 : "max-h-[60vh] w-full rounded-xl object-cover"
             }
             loading="lazy"
+            // En Android WebView el <img> nativo captura el long-press/swipe (para
+            // "guardar imagen") y bloquea la respuesta con cita. draggable={false} +
+            // callout/select en none dejan que los pointer events lleguen a la burbuja.
+            draggable={false}
+            style={{
+              WebkitUserSelect: "none",
+              userSelect: "none",
+              WebkitTouchCallout: "none",
+              WebkitUserDrag: "none",
+            } as React.CSSProperties}
           />
         ) : isVideo && mediaUrl ? (
           <video src={mediaUrl} controls className="max-h-[60vh] w-full rounded-xl" />
