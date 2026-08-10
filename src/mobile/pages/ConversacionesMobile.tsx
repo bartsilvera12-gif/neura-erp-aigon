@@ -1740,7 +1740,11 @@ function MessageBubble({
   };
 
   return (
-    <li className={`relative flex ${fromMe ? "justify-end" : "justify-start"}`}>
+    <li
+      id={`msg-${message.id}`}
+      className={`relative flex flex-col ${fromMe ? "items-end" : "items-start"}`}
+    >
+    <div className={`flex w-full ${fromMe ? "justify-end" : "justify-start"}`}>
       {/* Ícono que asoma mientras arrastrás: se llena a medida que te acercás al umbral. */}
       {dragX !== 0 ? (
         <span
@@ -1783,8 +1787,21 @@ function MessageBubble({
             const qType = quotedMessage.message_type || "text";
             const showThumb = Boolean(qUrl) && (qType === "image" || qType === "sticker" || qType === "video");
             return (
-              <div
-                className={`mb-1.5 flex items-start gap-2 rounded-lg border-l-4 px-2 py-1 text-[11px] ${
+              <button
+                type="button"
+                onClick={(e) => {
+                  // Al tocar la cita, saltamos al mensaje original y lo destacamos.
+                  // stopPropagation para que el long-press del bubble no se dispare.
+                  e.stopPropagation();
+                  const target = document.getElementById(`msg-${quotedMessage.id}`);
+                  if (!target) return;
+                  target.scrollIntoView({ behavior: "smooth", block: "center" });
+                  target.classList.add("ring-2", "ring-[#4FAEB2]", "rounded-2xl");
+                  window.setTimeout(() => {
+                    target.classList.remove("ring-2", "ring-[#4FAEB2]", "rounded-2xl");
+                  }, 1400);
+                }}
+                className={`mb-1.5 flex w-full items-start gap-2 rounded-lg border-l-4 px-2 py-1 text-left text-[11px] transition-opacity active:opacity-70 ${
                   fromMe
                     ? "border-white/60 bg-white/15 text-white/90"
                     : "border-[#4FAEB2] bg-[#4FAEB2]/8 text-slate-700"
@@ -1807,7 +1824,7 @@ function MessageBubble({
                     style={{ pointerEvents: "none" } as React.CSSProperties}
                   />
                 ) : null}
-              </div>
+              </button>
             );
           })()
         ) : null}
@@ -1909,23 +1926,26 @@ function MessageBubble({
           </p>
         ) : null}
       </div>
-      {/* Reacciones al mensaje. Se pintan como chip flotante sobre la esquina
-          inferior de la burbuja (mismo lado que la burbuja: entrantes izquierda,
-          salientes derecha). Ownership: si vos reaccionaste, chip con borde teal. */}
+    </div>
+      {/* Reacciones al mensaje. Píldora que se solapa con la esquina inferior de
+          la burbuja (estilo WhatsApp). Colores tema-aware para no chocar en dark. */}
       {reactions && reactions.length > 0 ? (
         <div
-          className={`-mt-2 flex gap-1 ${fromMe ? "justify-end pr-2" : "justify-start pl-2"}`}
+          className={`-mt-3 flex gap-0.5 ${fromMe ? "justify-end pr-3" : "justify-start pl-3"}`}
         >
           {reactions.map((r) => (
             <span
               key={r.emoji}
-              className={`inline-flex items-center gap-0.5 rounded-full border bg-white px-1.5 py-0.5 text-[11px] shadow-sm ${
-                r.ownedByMe ? "border-[#4FAEB2]" : "border-slate-200"
-              }`}
+              className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[13px] leading-none shadow-sm"
+              style={{
+                backgroundColor: themeColors.inboundBg,
+                color: themeColors.inboundText,
+                borderColor: r.ownedByMe ? "#4FAEB2" : "transparent",
+              }}
             >
               <span aria-hidden>{r.emoji}</span>
               {r.count > 1 ? (
-                <span className="text-[10px] font-semibold text-slate-600">{r.count}</span>
+                <span className="text-[10px] font-semibold opacity-70">{r.count}</span>
               ) : null}
             </span>
           ))}
