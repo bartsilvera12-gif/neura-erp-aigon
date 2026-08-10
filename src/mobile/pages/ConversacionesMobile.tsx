@@ -1077,6 +1077,18 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 onSwipeReply={() => setReplyingTo(m)}
                 themeColors={themeColors}
                 reactions={m.wa_message_id ? reactionsByTarget.get(m.wa_message_id) ?? [] : []}
+                onToggleReaction={(emoji, mine) => {
+                  if (!m.wa_message_id) return;
+                  // Si es tuya, la sacás mandando emoji vacío. Si es de otro, sumás la misma.
+                  void reactToMessage({
+                    conversationId,
+                    waMessageId: m.wa_message_id,
+                    emoji: mine ? "" : emoji,
+                  }).then((res) => {
+                    if (!res.ok) setError(res.error ?? "No se pudo actualizar la reacción");
+                    else void mutate();
+                  });
+                }}
               />
             ))}
             {optimistic.map((m) => (
@@ -1662,6 +1674,7 @@ function MessageBubble({
   onSwipeReply,
   themeColors,
   reactions,
+  onToggleReaction,
 }: {
   message: MobileChatMessage;
   /** Mensaje al que este responde (resuelto por wa_message_id). */
@@ -1674,6 +1687,8 @@ function MessageBubble({
   themeColors: ChatThemeColors;
   /** Reacciones agrupadas por emoji apuntando a este mensaje. */
   reactions?: Array<{ emoji: string; count: number; ownedByMe: boolean }>;
+  /** Tap sobre una reacción. `mine=true` → quitar la propia; `mine=false` → sumar la mía. */
+  onToggleReaction?: (emoji: string, mine: boolean) => void;
 }) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
@@ -1927,27 +1942,35 @@ function MessageBubble({
         ) : null}
       </div>
     </div>
-      {/* Reacciones al mensaje. Píldora que se solapa con la esquina inferior de
-          la burbuja (estilo WhatsApp). Colores tema-aware para no chocar en dark. */}
+      {/* Reacciones al mensaje. Chip chiquito estilo WhatsApp que se pega debajo
+          de la burbuja. Tap sobre tu propia reacción la borra; sobre la de otro
+          agrega la misma. Colores tema-aware para no chocar en dark. */}
       {reactions && reactions.length > 0 ? (
         <div
-          className={`-mt-3 flex gap-0.5 ${fromMe ? "justify-end pr-3" : "justify-start pl-3"}`}
+          className={`-mt-2.5 flex gap-0.5 ${fromMe ? "justify-end pr-2.5" : "justify-start pl-2.5"}`}
         >
           {reactions.map((r) => (
-            <span
+            <button
               key={r.emoji}
-              className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[13px] leading-none shadow-sm"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleReaction?.(r.emoji, r.ownedByMe);
+              }}
+              aria-label={r.ownedByMe ? `Quitar tu reacción ${r.emoji}` : `Reaccionar con ${r.emoji}`}
+              className="inline-flex items-center gap-0.5 rounded-full border px-1 text-[11px] leading-none shadow-sm transition-transform active:scale-90"
               style={{
                 backgroundColor: themeColors.inboundBg,
                 color: themeColors.inboundText,
                 borderColor: r.ownedByMe ? "#4FAEB2" : "transparent",
+                minHeight: 20,
               }}
             >
-              <span aria-hidden>{r.emoji}</span>
+              <span aria-hidden style={{ fontSize: 12 }}>{r.emoji}</span>
               {r.count > 1 ? (
-                <span className="text-[10px] font-semibold opacity-70">{r.count}</span>
+                <span className="text-[9px] font-semibold opacity-70">{r.count}</span>
               ) : null}
-            </span>
+            </button>
           ))}
         </div>
       ) : null}
