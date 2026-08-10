@@ -448,6 +448,8 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const [messageMenu, setMessageMenu] = useState<MobileChatMessage | null>(null);
   /** Mensaje al que se le va a agregar una reacción con el picker completo. */
   const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
+  /** Mensaje cuyo bottom-sheet de reacciones esta abierto. */
+  const [reactionsDetailFor, setReactionsDetailFor] = useState<MobileChatMessage | null>(null);
   /**
    * Archivos seleccionados en el picker que esperan confirmación antes de enviarse.
    * El usuario puede quitar algunos con la X o cancelar todo antes de mandar.
@@ -1077,18 +1079,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 onSwipeReply={() => setReplyingTo(m)}
                 themeColors={themeColors}
                 reactions={m.wa_message_id ? reactionsByTarget.get(m.wa_message_id) ?? [] : []}
-                onToggleReaction={(emoji, mine) => {
-                  if (!m.wa_message_id) return;
-                  // Si es tuya, la sacás mandando emoji vacío. Si es de otro, sumás la misma.
-                  void reactToMessage({
-                    conversationId,
-                    waMessageId: m.wa_message_id,
-                    emoji: mine ? "" : emoji,
-                  }).then((res) => {
-                    if (!res.ok) setError(res.error ?? "No se pudo actualizar la reacción");
-                    else void mutate();
-                  });
-                }}
+                onOpenReactionsDetail={() => setReactionsDetailFor(m)}
               />
             ))}
             {optimistic.map((m) => (
@@ -1454,6 +1445,43 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
         />
       ) : null}
 
+      {/* Bottom-sheet con detalle de reacciones al tocar el chip. Muestra quién
+          reaccionó con qué emoji, y permite quitar la propia con un tap. */}
+      {reactionsDetailFor ? (
+        <ReactionsDetailSheet
+          message={reactionsDetailFor}
+          reactionsByTarget={reactionsByTarget}
+          contactName={conv?.contact_nombre ?? conv?.contact_telefono ?? "Cliente"}
+          onClose={() => setReactionsDetailFor(null)}
+          onRemoveMine={(emoji) => {
+            const target = reactionsDetailFor;
+            setReactionsDetailFor(null);
+            if (!target?.wa_message_id) return;
+            void reactToMessage({
+              conversationId,
+              waMessageId: target.wa_message_id,
+              emoji: "", // vacío = quitar
+            }).then((res) => {
+              if (!res.ok) setError(res.error ?? "No se pudo quitar la reacción");
+              else void mutate();
+            });
+          }}
+          onAddMine={(emoji) => {
+            const target = reactionsDetailFor;
+            setReactionsDetailFor(null);
+            if (!target?.wa_message_id) return;
+            void reactToMessage({
+              conversationId,
+              waMessageId: target.wa_message_id,
+              emoji,
+            }).then((res) => {
+              if (!res.ok) setError(res.error ?? "No se pudo agregar la reacción");
+              else void mutate();
+            });
+          }}
+        />
+      ) : null}
+
       {/* Picker completo de emojis para reaccionar (abierto desde el "+" del menu) */}
       {reactionTarget ? (
         <ReactionEmojiPicker
@@ -1674,7 +1702,7 @@ function MessageBubble({
   onSwipeReply,
   themeColors,
   reactions,
-  onToggleReaction,
+  onOpenReactionsDetail,
 }: {
   message: MobileChatMessage;
   /** Mensaje al que este responde (resuelto por wa_message_id). */
@@ -1687,8 +1715,8 @@ function MessageBubble({
   themeColors: ChatThemeColors;
   /** Reacciones agrupadas por emoji apuntando a este mensaje. */
   reactions?: Array<{ emoji: string; count: number; ownedByMe: boolean }>;
-  /** Tap sobre una reacción. `mine=true` → quitar la propia; `mine=false` → sumar la mía. */
-  onToggleReaction?: (emoji: string, mine: boolean) => void;
+  /** Abrir bottom-sheet con detalle de reacciones (quitar propia, agregar, etc.). */
+  onOpenReactionsDetail?: () => void;
 }) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
@@ -1757,9 +1785,10 @@ function MessageBubble({
   return (
     <li
       id={`msg-${message.id}`}
-      className={`relative flex flex-col ${fromMe ? "items-end" : "items-start"}`}
+      className={`relative flex ${fromMe ? "justify-end" : "justify-start"} ${
+        reactions && reactions.length > 0 ? "mb-3" : ""
+      }`}
     >
-    <div className={`flex w-full ${fromMe ? "justify-end" : "justify-start"}`}>
       {/* Ícono que asoma mientras arrastrás: se llena a medida que te acercás al umbral. */}
       {dragX !== 0 ? (
         <span
@@ -1940,40 +1969,39 @@ function MessageBubble({
             )}
           </p>
         ) : null}
+        {/* Reacciones al mensaje — chip estilo WhatsApp que se solapa con la
+            esquina inferior de la burbuja. Tap = abre bottom sheet con detalle.
+            El bubble tiene overflow-visible, así que puede sobresalir para abajo. */}
+        {reactions && reactions.length > 0 ? (
+          <div
+            className={`absolute -bottom-2.5 flex gap-0.5 ${fromMe ? "right-1.5" : "left-1.5"}`}
+          >
+            {reactions.map((r) => (
+              <button
+                key={r.emoji}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenReactionsDetail?.();
+                }}
+                aria-label="Ver reacciones"
+                className="inline-flex items-center gap-0.5 rounded-full border px-1.5 text-[11px] leading-none shadow-sm transition-transform active:scale-90"
+                style={{
+                  backgroundColor: themeColors.inboundBg,
+                  color: themeColors.inboundText,
+                  borderColor: r.ownedByMe ? "#4FAEB2" : "transparent",
+                  minHeight: 22,
+                }}
+              >
+                <span aria-hidden style={{ fontSize: 13 }}>{r.emoji}</span>
+                {r.count > 1 ? (
+                  <span className="text-[10px] font-semibold opacity-70">{r.count}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
-    </div>
-      {/* Reacciones al mensaje. Chip chiquito estilo WhatsApp que se pega debajo
-          de la burbuja. Tap sobre tu propia reacción la borra; sobre la de otro
-          agrega la misma. Colores tema-aware para no chocar en dark. */}
-      {reactions && reactions.length > 0 ? (
-        <div
-          className={`-mt-2.5 flex gap-0.5 ${fromMe ? "justify-end pr-2.5" : "justify-start pl-2.5"}`}
-        >
-          {reactions.map((r) => (
-            <button
-              key={r.emoji}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleReaction?.(r.emoji, r.ownedByMe);
-              }}
-              aria-label={r.ownedByMe ? `Quitar tu reacción ${r.emoji}` : `Reaccionar con ${r.emoji}`}
-              className="inline-flex items-center gap-0.5 rounded-full border px-1 text-[11px] leading-none shadow-sm transition-transform active:scale-90"
-              style={{
-                backgroundColor: themeColors.inboundBg,
-                color: themeColors.inboundText,
-                borderColor: r.ownedByMe ? "#4FAEB2" : "transparent",
-                minHeight: 20,
-              }}
-            >
-              <span aria-hidden style={{ fontSize: 12 }}>{r.emoji}</span>
-              {r.count > 1 ? (
-                <span className="text-[9px] font-semibold opacity-70">{r.count}</span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
     </li>
   );
 }
@@ -2449,6 +2477,132 @@ function EmojiStickerDrawer({
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Bottom-sheet con detalle de reacciones ──────────────────────────────────
+
+/**
+ * Detalle de las reacciones a un mensaje. Estilo WhatsApp:
+ *   Tabs: "Todas (N)" | "👍 N" | "❤️ N" | ...
+ *   Lista: cada persona con su emoji. "Tú - Toca para quitar" es tappeable.
+ *   Extra: al lado del emoji del cliente, botón "+ Yo también" para agregar la misma.
+ */
+function ReactionsDetailSheet({
+  message,
+  reactionsByTarget,
+  contactName,
+  onClose,
+  onRemoveMine,
+  onAddMine,
+}: {
+  message: MobileChatMessage;
+  reactionsByTarget: Map<string, Array<{ emoji: string; count: number; ownedByMe: boolean }>>;
+  contactName: string;
+  onClose: () => void;
+  onRemoveMine: (emoji: string) => void;
+  onAddMine: (emoji: string) => void;
+}) {
+  const target = message.wa_message_id ?? "";
+  const grouped = target ? reactionsByTarget.get(target) ?? [] : [];
+  // Total flat (para header "N reacciones").
+  const total = grouped.reduce((s, r) => s + r.count, 0);
+  const [selectedEmoji, setSelectedEmoji] = useState<string | "all">("all");
+  const visibleRows = grouped.filter((r) => selectedEmoji === "all" || r.emoji === selectedEmoji);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl bg-white"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200" />
+        <div className="px-4 pt-3 pb-2">
+          <p className="text-sm font-semibold text-slate-800">
+            {total} {total === 1 ? "reacción" : "reacciones"}
+          </p>
+        </div>
+        {/* Tabs por emoji */}
+        <div className="flex gap-1.5 overflow-x-auto px-4 pb-2">
+          <button
+            type="button"
+            onClick={() => setSelectedEmoji("all")}
+            className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap ${
+              selectedEmoji === "all"
+                ? "bg-slate-900 text-white"
+                : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            Todas {total}
+          </button>
+          {grouped.map((r) => (
+            <button
+              key={r.emoji}
+              type="button"
+              onClick={() => setSelectedEmoji(r.emoji)}
+              className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-semibold whitespace-nowrap ${
+                selectedEmoji === r.emoji
+                  ? "bg-slate-900 text-white"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              <span aria-hidden style={{ fontSize: 14 }}>{r.emoji}</span> {r.count}
+            </button>
+          ))}
+        </div>
+        {/* Lista de reacciones. Cada grupo puede tener 1 tuya + 1 del cliente (Meta
+            solo permite 1 reacción por persona por mensaje). */}
+        <ul className="max-h-[60vh] overflow-y-auto">
+          {visibleRows.length === 0 ? (
+            <li className="px-4 py-4 text-center text-sm text-slate-400">
+              Sin reacciones para este emoji.
+            </li>
+          ) : null}
+          {visibleRows.flatMap((r) => {
+            // Cada r puede representar hasta 2 personas: vos y el cliente.
+            const rows: Array<{ who: "me" | "them"; emoji: string }> = [];
+            if (r.ownedByMe) rows.push({ who: "me", emoji: r.emoji });
+            // Si count > (ownedByMe ? 1 : 0), hubo al menos una del cliente.
+            const otherCount = r.count - (r.ownedByMe ? 1 : 0);
+            for (let i = 0; i < otherCount; i++) rows.push({ who: "them", emoji: r.emoji });
+            return rows.map((row, idx) => (
+              <li key={`${r.emoji}-${row.who}-${idx}`} className="flex items-center gap-3 px-4 py-3 border-t border-slate-100 first:border-t-0">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600">
+                  {row.who === "me" ? "T" : contactName.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800">
+                    {row.who === "me" ? "Tú" : contactName}
+                  </p>
+                  {row.who === "me" ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveMine(row.emoji)}
+                      className="text-[12px] text-[#3F8E91] underline"
+                    >
+                      Toca para quitar
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onAddMine(row.emoji)}
+                      className="text-[12px] text-slate-500"
+                    >
+                      + Yo también
+                    </button>
+                  )}
+                </div>
+                <span aria-hidden style={{ fontSize: 22 }}>{row.emoji}</span>
+              </li>
+            ));
+          })}
+        </ul>
       </div>
     </div>
   );
