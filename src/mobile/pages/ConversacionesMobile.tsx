@@ -1260,46 +1260,73 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
 
       {/* Menú de contexto: acciones sobre un mensaje (long-press) */}
       {messageMenu ? (
-        <div
-          className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center"
-          role="presentation"
-          onClick={() => setMessageMenu(null)}
-        >
-          <div
-            role="dialog"
-            aria-label="Acciones sobre el mensaje"
-            onClick={(ev) => ev.stopPropagation()}
-            className="w-full max-w-sm rounded-t-2xl bg-white sm:rounded-2xl"
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
-          >
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <p className="text-sm font-semibold text-slate-800">Mensaje</p>
-              <button
-                type="button"
-                onClick={() => setMessageMenu(null)}
-                aria-label="Cerrar"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+        (() => {
+          const mm = messageMenu;
+          const mmRaw = (mm.raw_payload ?? null) as RawPayload;
+          const mmUrl = getErpAttachmentPublicUrl(mmRaw) ?? getWhatsAppMediaUrlFromRawPayload(mmRaw);
+          const mmType = mm.message_type || "text";
+          const mmShowThumb = Boolean(mmUrl) && (mmType === "image" || mmType === "sticker" || mmType === "video");
+          return (
+            <div
+              className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 sm:items-center"
+              role="presentation"
+              onClick={() => setMessageMenu(null)}
+            >
+              <div
+                role="dialog"
+                aria-label="Acciones sobre el mensaje"
+                onClick={(ev) => ev.stopPropagation()}
+                className="w-full max-w-sm rounded-t-2xl bg-white sm:rounded-2xl"
+                style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
               >
-                <X className="h-4 w-4" />
-              </button>
+                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-800">
+                    Mensaje de {mm.from_me ? "vos" : "el cliente"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMessageMenu(null)}
+                    aria-label="Cerrar"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-50"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                {/* Preview del mensaje seleccionado — en dark el overlay tapaba el chat
+                    y no se veía cuál mensaje habías marcado. */}
+                <div className="flex items-start gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2.5">
+                  {mmShowThumb ? (
+                    <img
+                      src={mmUrl!}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded-md object-cover"
+                      draggable={false}
+                      style={{ pointerEvents: "none" } as React.CSSProperties}
+                    />
+                  ) : null}
+                  <p className="line-clamp-3 min-w-0 flex-1 text-[12px] text-slate-700">
+                    {previewForQuoted(mm)}
+                  </p>
+                </div>
+                <div className="flex flex-col py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReplyingTo(mm);
+                      setMessageMenu(null);
+                    }}
+                    className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
+                  >
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4FAEB2]/10 text-[#3F8E91]">
+                      <Reply className="h-4 w-4" />
+                    </span>
+                    Responder
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex flex-col py-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setReplyingTo(messageMenu);
-                  setMessageMenu(null);
-                }}
-                className="flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-800 hover:bg-slate-50"
-              >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#4FAEB2]/10 text-[#3F8E91]">
-                  <Reply className="h-4 w-4" />
-                </span>
-                Responder
-              </button>
-            </div>
-          </div>
-        </div>
+          );
+        })()
       ) : null}
 
       {/* Preview de archivos seleccionados antes de mandar */}
