@@ -21,6 +21,7 @@ import {
   type RawPayload,
 } from "@/lib/chat/message-erp-display";
 import {
+  reactToMessage,
   sendMobileMediaFile,
   sendMobileMessage,
   setPipelineEstado,
@@ -445,6 +446,8 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
   const [replyingTo, setReplyingTo] = useState<MobileChatMessage | null>(null);
   /** Mensaje sobre el que se abre el menú de contexto (long-press). */
   const [messageMenu, setMessageMenu] = useState<MobileChatMessage | null>(null);
+  /** Mensaje al que se le va a agregar una reacción con el picker completo. */
+  const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
   /**
    * Archivos seleccionados en el picker que esperan confirmación antes de enviarse.
    * El usuario puede quitar algunos con la X o cancelar todo antes de mandar.
@@ -483,6 +486,54 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
     if (!wamid) return null;
     return messagesByWaId.get(wamid) ?? null;
   }
+
+  /**
+   * Índice de reacciones por wa_message_id del mensaje al que apuntan.
+   * Cada entrada agrupa reacciones por emoji con conteo, indicando además si
+   * "vos" (el vendedor) reaccionó — para pintar borde propio.
+   *
+   * Meta manda las reacciones como mensajes con message_type='reaction' y:
+   *   - reaction.message_id (webhook entrante — desde el cliente)
+   *   - erp.reaction_target_wa_message_id (envío nuestro desde el ERP)
+   */
+  type ReactionInfo = { emoji: string; count: number; ownedByMe: boolean };
+  const reactionsByTarget = useMemo(() => {
+    const map = new Map<string, ReactionInfo[]>();
+    for (const m of messages) {
+      if ((m.message_type || "").toLowerCase() !== "reaction") continue;
+      const raw = (m.raw_payload ?? null) as
+        | (Record<string, unknown> & {
+            reaction?: { message_id?: string; emoji?: string };
+            erp?: { reaction_target_wa_message_id?: string };
+          })
+        | null;
+      const target = raw?.reaction?.message_id ?? raw?.erp?.reaction_target_wa_message_id ?? "";
+      if (!target) continue;
+      const emoji = (raw?.reaction?.emoji ?? m.content ?? "").trim();
+      // Emoji vacío = retiro de reacción (Meta). Lo ignoramos para no mostrar
+      // reacciones "vacías". La retirada se refleja porque no acumula.
+      if (!emoji) continue;
+      const arr = map.get(target) ?? [];
+      const existing = arr.find((r) => r.emoji === emoji);
+      if (existing) {
+        existing.count += 1;
+        if (m.from_me) existing.ownedByMe = true;
+      } else {
+        arr.push({ emoji, count: 1, ownedByMe: m.from_me });
+      }
+      map.set(target, arr);
+    }
+    return map;
+  }, [messages]);
+
+  /**
+   * Mensajes visibles en el chat: quitamos los que son puras reacciones (se
+   * pintan como chip debajo del mensaje al que apuntan, no como burbuja propia).
+   */
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => (m.message_type || "").toLowerCase() !== "reaction"),
+    [messages]
+  );
 
   /**
    * Marcar como leído en Meta → el cliente ve el doble check azul.
@@ -1016,7 +1067,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           </div>
         ) : (
           <ul className="space-y-1.5">
-            {messages.map((m) => (
+            {visibleMessages.map((m) => (
               <MessageBubble
                 key={m.id}
                 message={m}
@@ -1025,6 +1076,7 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                 onLongPress={() => setMessageMenu(m)}
                 onSwipeReply={() => setReplyingTo(m)}
                 themeColors={themeColors}
+                reactions={m.wa_message_id ? reactionsByTarget.get(m.wa_message_id) ?? [] : []}
               />
             ))}
             {optimistic.map((m) => (
@@ -1308,6 +1360,46 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
                     {previewForQuoted(mm)}
                   </p>
                 </div>
+                {/* Reacciones rápidas (6 emojis) + botón + para abrir drawer completo.
+                    Solo disponibles si el mensaje tiene wa_message_id (los optimistas aún no). */}
+                {mm.wa_message_id ? (
+                  <div className="flex items-center gap-1 border-b border-slate-100 px-3 py-2">
+                    {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => {
+                          void reactToMessage({
+                            conversationId,
+                            waMessageId: mm.wa_message_id!,
+                            emoji: e,
+                          }).then((res) => {
+                            if (!res.ok) setError(res.error ?? "No se pudo reaccionar");
+                            else void mutate();
+                          });
+                          setMessageMenu(null);
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition-transform active:scale-125 hover:bg-slate-100"
+                        aria-label={`Reaccionar con ${e}`}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Reusa el drawer del composer. Al elegir un emoji, envía la
+                        // reacción en vez de agregarlo al input.
+                        setReactionTarget(mm);
+                        setMessageMenu(null);
+                      }}
+                      className="ml-1 flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+                      aria-label="Más emojis"
+                    >
+                      +
+                    </button>
+                  </div>
+                ) : null}
                 <div className="flex flex-col py-1">
                   <button
                     type="button"
@@ -1347,6 +1439,26 @@ function ChatDetail({ conversationId, onBack }: { conversationId: string; onBack
           existingPacks={stickerCatalog ?? []}
           onCancel={() => setSaveStickerFor(null)}
           onConfirm={onSaveIncomingSticker}
+        />
+      ) : null}
+
+      {/* Picker completo de emojis para reaccionar (abierto desde el "+" del menu) */}
+      {reactionTarget ? (
+        <ReactionEmojiPicker
+          onClose={() => setReactionTarget(null)}
+          onPick={(emoji) => {
+            const target = reactionTarget;
+            setReactionTarget(null);
+            if (!target?.wa_message_id) return;
+            void reactToMessage({
+              conversationId,
+              waMessageId: target.wa_message_id,
+              emoji,
+            }).then((res) => {
+              if (!res.ok) setError(res.error ?? "No se pudo reaccionar");
+              else void mutate();
+            });
+          }}
         />
       ) : null}
 
@@ -1549,6 +1661,7 @@ function MessageBubble({
   onLongPress,
   onSwipeReply,
   themeColors,
+  reactions,
 }: {
   message: MobileChatMessage;
   /** Mensaje al que este responde (resuelto por wa_message_id). */
@@ -1559,6 +1672,8 @@ function MessageBubble({
   onSwipeReply?: () => void;
   /** Paleta compartida (light/dark). Aplica solo a burbujas ENTRANTES; salientes siguen teal. */
   themeColors: ChatThemeColors;
+  /** Reacciones agrupadas por emoji apuntando a este mensaje. */
+  reactions?: Array<{ emoji: string; count: number; ownedByMe: boolean }>;
 }) {
   const fromMe = message.from_me;
   const ts = formatHora(message.created_at);
@@ -1794,6 +1909,28 @@ function MessageBubble({
           </p>
         ) : null}
       </div>
+      {/* Reacciones al mensaje. Se pintan como chip flotante sobre la esquina
+          inferior de la burbuja (mismo lado que la burbuja: entrantes izquierda,
+          salientes derecha). Ownership: si vos reaccionaste, chip con borde teal. */}
+      {reactions && reactions.length > 0 ? (
+        <div
+          className={`-mt-2 flex gap-1 ${fromMe ? "justify-end pr-2" : "justify-start pl-2"}`}
+        >
+          {reactions.map((r) => (
+            <span
+              key={r.emoji}
+              className={`inline-flex items-center gap-0.5 rounded-full border bg-white px-1.5 py-0.5 text-[11px] shadow-sm ${
+                r.ownedByMe ? "border-[#4FAEB2]" : "border-slate-200"
+              }`}
+            >
+              <span aria-hidden>{r.emoji}</span>
+              {r.count > 1 ? (
+                <span className="text-[10px] font-semibold text-slate-600">{r.count}</span>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -2269,6 +2406,76 @@ function EmojiStickerDrawer({
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Picker de emojis dedicado a reacciones ──────────────────────────────────
+
+/**
+ * Bottom-sheet con todas las categorías de emojis. Al tocar uno, llama `onPick`.
+ * Es más chico que el drawer de composer (no muestra stickers ni buscador) —
+ * solo la biblioteca completa de EMOJI_CATEGORIES.
+ */
+function ReactionEmojiPicker({
+  onClose,
+  onPick,
+}: {
+  onClose: () => void;
+  onPick: (emoji: string) => void;
+}) {
+  const [cat, setCat] = useState(0);
+  const current = EMOJI_CATEGORIES[cat] ?? EMOJI_CATEGORIES[0];
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl bg-white p-3"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-800">Elegí una reacción</p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {/* Tabs de categoría */}
+        <div className="mb-2 flex gap-1 overflow-x-auto pb-1">
+          {EMOJI_CATEGORIES.map((c, i) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => setCat(i)}
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${
+                i === cat ? "bg-[#4FAEB2] text-white" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {c.icon} {c.label}
+            </button>
+          ))}
+        </div>
+        {/* Grid de emojis */}
+        <div className="grid max-h-[45vh] grid-cols-8 gap-1 overflow-y-auto">
+          {current.emojis.map((e, i) => (
+            <button
+              key={`${cat}-${i}`}
+              type="button"
+              onClick={() => onPick(e)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-transform active:scale-125 hover:bg-slate-100"
+            >
+              {e}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

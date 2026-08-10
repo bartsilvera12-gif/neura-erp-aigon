@@ -171,6 +171,33 @@ export async function setPipelineEstado(opts: {
   }
 }
 
+/**
+ * Envía una reacción (emoji) sobre un mensaje. `emoji=""` quita la reacción.
+ * Requiere que el mensaje tenga wa_message_id (los optimistas no).
+ */
+export async function reactToMessage(opts: {
+  conversationId: string;
+  waMessageId: string;
+  emoji: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetchWithSupabaseSession("/api/chat/react", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: opts.conversationId,
+        wa_message_id: opts.waMessageId,
+        emoji: opts.emoji,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) return { ok: false, error: json.error ?? `Error ${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red" };
+  }
+}
+
 /** Sube un archivo (audio, imagen, doc…) a /api/chat/send-media. Mismo endpoint que la desktop. */
 export async function sendMobileMediaFile(opts: {
   conversationId: string;

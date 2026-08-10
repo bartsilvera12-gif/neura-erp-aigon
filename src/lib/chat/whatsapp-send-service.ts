@@ -338,6 +338,36 @@ export async function sendWhatsAppMarkAsRead(
   });
 }
 
+export type SendWhatsAppReactionParams = {
+  toDigits: string;
+  phoneNumberId: string;
+  accessToken: string;
+  /** wa_message_id del mensaje al que se reacciona. */
+  targetMessageId: string;
+  /** Emoji unicode. String vacío elimina la reacción previa (Meta). */
+  emoji: string;
+  graphVersion?: string;
+};
+
+/**
+ * Enviar una reacción (emoji) sobre un mensaje.
+ * Meta: message.type=reaction, reaction={message_id, emoji}. Emoji vacío = quitar.
+ * https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages#reaction-messages
+ */
+export async function sendWhatsAppReaction(
+  params: SendWhatsAppReactionParams
+): Promise<SendWhatsAppTextResult> {
+  return sendWhatsAppPayload(params, {
+    messaging_product: "whatsapp",
+    to: params.toDigits,
+    type: "reaction",
+    reaction: {
+      message_id: params.targetMessageId,
+      emoji: params.emoji,
+    },
+  });
+}
+
 export type SendWhatsAppVideoParams = {
   toDigits: string;
   phoneNumberId: string;

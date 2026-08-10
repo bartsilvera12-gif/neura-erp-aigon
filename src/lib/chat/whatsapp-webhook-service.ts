@@ -139,6 +139,12 @@ export function extractMessageBody(msg: MetaInboundMessage): { message_type: str
       };
     case "sticker":
       return { message_type: "sticker", content: "[sticker]" };
+    case "reaction": {
+      // Meta manda `reaction: { message_id, emoji }`. Guardamos el emoji como content
+      // (facilita búsqueda/preview). El target message_id queda en raw_payload.reaction.
+      const emoji = (msg as { reaction?: { emoji?: string } }).reaction?.emoji ?? "";
+      return { message_type: "reaction", content: emoji };
+    }
     case "button": {
       const b = msg.button;
       const label =
