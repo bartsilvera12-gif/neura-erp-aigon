@@ -33,7 +33,16 @@ function parseBool(v: string | null): boolean {
 }
 
 function resolveSchema(): string {
-  const raw = (process.env.APP_DB_SCHEMA ?? "neura").trim();
+  // Misma cadena de fallbacks que usa `SUPABASE_APP_SCHEMA` en el resto de la app.
+  // Antes solo miraba APP_DB_SCHEMA → si el deploy configura NEURA_CLIENT_SCHEMA
+  // (típico en tenants como aigonerp), el cron caía al default "neura" y no veía
+  // las conversaciones del tenant real.
+  const raw =
+    (process.env.NEURA_CLIENT_SCHEMA?.trim() ||
+      process.env.NEXT_PUBLIC_NEURA_CLIENT_SCHEMA?.trim() ||
+      process.env.APP_DB_SCHEMA?.trim() ||
+      process.env.NEXT_PUBLIC_APP_DB_SCHEMA?.trim() ||
+      "neura").trim();
   return assertAllowedChatDataSchema(raw);
 }
 
