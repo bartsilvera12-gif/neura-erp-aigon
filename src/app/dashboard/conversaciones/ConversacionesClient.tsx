@@ -588,10 +588,11 @@ export function ConversacionesClient({
     if (pendingAsesor !== null && pendingAsesor === urlAsesor) setPendingAsesor(null);
   }, [pendingAsesor, urlAsesor]);
 
-  // Admin: cargar la lista de asesores (agentes) para el filtro. Reusa la misma fuente que el
-  // modal de Transferir (id = chat_agent id = assigned_agent_id), deduplicada por agente.
+  // Admin (o vista de historial, donde siempre exponemos el filtro por asesor):
+  // cargar la lista de agentes. Reusa la misma fuente que el modal de Transferir
+  // (id = chat_agent id = assigned_agent_id), deduplicada por agente.
   useEffect(() => {
-    if (!esAdmin) return;
+    if (!esAdmin && mode !== "historial") return;
     let cancelled = false;
     void fetchTransferTargetAgents()
       .then((rows) => {
@@ -614,7 +615,7 @@ export function ConversacionesClient({
     return () => {
       cancelled = true;
     };
-  }, [esAdmin]);
+  }, [esAdmin, mode]);
 
   /** Si la URL corrige un canal inválido (p. ej. ya no existe), alinear UI optimista. */
   useEffect(() => {
@@ -2771,43 +2772,51 @@ export function ConversacionesClient({
                     </option>
                   ))}
               </select>
-              <select
-                className="appearance-none rounded-lg border border-slate-200 bg-white bg-[length:13px_13px] bg-[right_0.55rem_center] bg-no-repeat px-2.5 py-2 pr-7 text-xs font-medium text-slate-700 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 min-w-[8rem] shrink-0"
-                style={{
-                  backgroundImage:
-                    "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234FAEB2' stroke-width='2.5'><path stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/></svg>\")",
-                }}
-                value={esAdmin ? displayAsesor : displayAsignacion}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (esAdmin) {
-                    setPendingAsesor(v === "" ? "" : v);
-                    patchInboxQuery({ asesor: v === "" ? null : v });
-                  } else {
-                    setPendingAsignacion(v === "" ? "" : v);
-                    patchInboxQuery({ asignacion: v === "" ? null : v });
-                  }
-                }}
-                aria-label={esAdmin ? "Filtrar por asesor" : "Filtrar por asignación"}
-                title={esAdmin ? "Asesor" : "Asignación"}
-              >
-                {esAdmin ? (
-                  <>
-                    <option value="">Todos los asesores</option>
-                    {inboxAgents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.nombre}
-                      </option>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    <option value="">Asignación: todas</option>
-                    {opInQueues ? <option value="mios">Asignadas a mí</option> : null}
-                    <option value="sin_asignar">Sin asignar</option>
-                  </>
-                )}
-              </select>
+              {/* En modo historial siempre exponemos el filtro por asesor (vista de
+                  gestión). En inbox se respeta la señal `esAdmin` para no romper el
+                  flujo del operador. */}
+              {(() => {
+                const showAsesorPicker = esAdmin || mode === "historial";
+                return (
+                  <select
+                    className="appearance-none rounded-lg border border-slate-200 bg-white bg-[length:13px_13px] bg-[right_0.55rem_center] bg-no-repeat px-2.5 py-2 pr-7 text-xs font-medium text-slate-700 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 min-w-[8rem] shrink-0"
+                    style={{
+                      backgroundImage:
+                        "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234FAEB2' stroke-width='2.5'><path stroke-linecap='round' stroke-linejoin='round' d='M6 9l6 6 6-6'/></svg>\")",
+                    }}
+                    value={showAsesorPicker ? displayAsesor : displayAsignacion}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (showAsesorPicker) {
+                        setPendingAsesor(v === "" ? "" : v);
+                        patchInboxQuery({ asesor: v === "" ? null : v });
+                      } else {
+                        setPendingAsignacion(v === "" ? "" : v);
+                        patchInboxQuery({ asignacion: v === "" ? null : v });
+                      }
+                    }}
+                    aria-label={showAsesorPicker ? "Filtrar por asesor" : "Filtrar por asignación"}
+                    title={showAsesorPicker ? "Asesor" : "Asignación"}
+                  >
+                    {showAsesorPicker ? (
+                      <>
+                        <option value="">Todos los asesores</option>
+                        {inboxAgents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.nombre}
+                          </option>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <option value="">Asignación: todas</option>
+                        {opInQueues ? <option value="mios">Asignadas a mí</option> : null}
+                        <option value="sin_asignar">Sin asignar</option>
+                      </>
+                    )}
+                  </select>
+                );
+              })()}
             </>
           ) : null}
         </div>
