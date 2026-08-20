@@ -27,13 +27,14 @@ function formatDateTime(iso: string): string {
   });
 }
 
-function escapeCsvCell(value: string): string {
-  const s = String(value).replace(/"/g, '""');
-  if (/[",\n\r]/.test(s)) return `"${s}"`;
-  return s;
-}
-
-function buildCsv(rows: FinalizedClosureListRow[]): string {
+/**
+ * Genera y descarga un XLSX real (no CSV) con filtros de columna, anchos
+ * calibrados y freeze de la primera fila. Usa la librería `xlsx` ya presente
+ * en el proyecto — no suma bundle nuevo.
+ */
+async function downloadXlsx(rows: FinalizedClosureListRow[], fileName: string) {
+  // Import dinámico: la lib solo se carga al descargar, no pesa en el bundle inicial.
+  const XLSX = await import("xlsx");
   const headers = [
     "ID cierre",
     "ID conversación",
@@ -50,30 +51,53 @@ function buildCsv(rows: FinalizedClosureListRow[]): string {
     "Comentario de cierre",
     "Último mensaje / resumen",
   ];
-  const lines = [headers.join(",")];
+  const data: (string | number)[][] = [headers];
   for (const r of rows) {
-    const canalTipo = r.channel_type;
-    const canalNombre = r.channel_nombre ?? "";
-    lines.push(
-      [
-        escapeCsvCell(r.closure_id),
-        escapeCsvCell(r.conversation_id),
-        escapeCsvCell(formatDateTime(r.closed_at)),
-        escapeCsvCell(r.contact_name ?? ""),
-        escapeCsvCell(r.phone_number),
-        escapeCsvCell(canalTipo),
-        escapeCsvCell(canalNombre),
-        escapeCsvCell(r.queue_nombre ?? ""),
-        escapeCsvCell(r.assigned_agent_nombre ?? ""),
-        escapeCsvCell(r.closed_by_nombre ?? ""),
-        escapeCsvCell(r.state_label),
-        escapeCsvCell(r.substate_label),
-        escapeCsvCell(r.comment ?? ""),
-        escapeCsvCell(r.last_preview ?? ""),
-      ].join(",")
-    );
+    data.push([
+      r.closure_id,
+      r.conversation_id,
+      formatDateTime(r.closed_at),
+      r.contact_name ?? "",
+      r.phone_number,
+      r.channel_type,
+      r.channel_nombre ?? "",
+      r.queue_nombre ?? "",
+      r.assigned_agent_nombre ?? "",
+      r.closed_by_nombre ?? "",
+      r.state_label,
+      r.substate_label,
+      r.comment ?? "",
+      r.last_preview ?? "",
+    ]);
   }
-  return lines.join("\r\n");
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  // Anchos calibrados para que se lea sin sacar la barra de scroll horizontal.
+  ws["!cols"] = [
+    { wch: 12 }, // ID cierre
+    { wch: 12 }, // ID conv
+    { wch: 20 }, // fecha
+    { wch: 24 }, // contacto
+    { wch: 16 }, // número
+    { wch: 12 }, // canal tipo
+    { wch: 18 }, // canal nombre
+    { wch: 18 }, // cola
+    { wch: 22 }, // agente
+    { wch: 22 }, // cerrado por
+    { wch: 16 }, // estado
+    { wch: 16 }, // subestado
+    { wch: 40 }, // comentario
+    { wch: 50 }, // último mensaje
+  ];
+  // Auto-filtro sobre TODAS las columnas (Excel pinta los embudos clickeables).
+  ws["!autofilter"] = { ref: `A1:N${data.length}` };
+  // Freeze de la primera fila para que los headers queden fijos al scrollear.
+  ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+  // Alternativa moderna que respeta la vista: pane split en la fila 2.
+  ws["!views"] = [{ ySplit: 1, state: "frozen", topLeftCell: "A2" }];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Finalizadas");
+  XLSX.writeFile(wb, fileName);
 }
 
 type ChatMessageRow = {
@@ -166,14 +190,10 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
     setInfo(null);
     try {
       const res = await listFinalizedClosures(filtersPayload, 1, EXPORT_MAX_ROWS);
-      const csv = buildCsv(res.rows);
-      const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `conversaciones-finalizadas-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadXlsx(
+        res.rows,
+        `conversaciones-finalizadas-${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
       if (res.total > res.rows.length) {
         setInfo(
           `Se exportaron ${res.rows.length} filas de ${res.total} (límite ${EXPORT_MAX_ROWS}). Ajustá filtros o fechas para acotar el conjunto.`
@@ -269,8 +289,10 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
         <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">{info}</div>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 shadow-sm space-y-4">
-        <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtros</h2>
+      <section
+        className="rounded-2xl border border-[#4FAEB2]/25 bg-gradient-to-br from-[#4FAEB2]/8 via-white to-white p-4 md:p-5 shadow-sm space-y-4"
+      >
+        <h2 className="text-xs font-bold uppercase tracking-wider text-[#3F8E91]">Filtros</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
             Desde
@@ -278,7 +300,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             />
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
@@ -287,7 +309,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             />
           </label>
           {!esAsesor && (
@@ -296,7 +318,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             <select
               value={queueId}
               onChange={(e) => setQueueId(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             >
               <option value="">Todas</option>
               {filterOptions.queues.map((qItem) => (
@@ -313,7 +335,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             <select
               value={assignedUsuarioId}
               onChange={(e) => setAssignedUsuarioId(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             >
               <option value="">Todos</option>
               {filterOptions.agents.map((a) => (
@@ -330,7 +352,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             <select
               value={channelId}
               onChange={(e) => setChannelId(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             >
               <option value="">Todos</option>
               {filterOptions.channels.map((c) => (
@@ -346,7 +368,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             <select
               value={stateLabel}
               onChange={(e) => setStateLabel(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             >
               <option value="">Todos</option>
               {filterOptions.state_labels.map((s) => (
@@ -362,7 +384,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             <select
               value={substateLabel}
               onChange={(e) => setSubstateLabel(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             >
               <option value="">Todos</option>
               {filterOptions.substate_labels.map((s) => (
@@ -380,7 +402,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar contacto…"
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
             />
           </label>
         </div>
@@ -396,7 +418,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
               <select
                 value={closedByUsuarioId}
                 onChange={(e) => setClosedByUsuarioId(e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-colors hover:border-[#4FAEB2]/60 focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20"
               >
                 <option value="">Todos</option>
                 {(filterOptions.closed_by_users ?? []).map((u) => (

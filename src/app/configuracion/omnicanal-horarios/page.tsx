@@ -155,7 +155,7 @@ export default function OmnicanalHorariosPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8 px-4 pb-12 sm:px-6 lg:px-8">
+    <div className="w-full space-y-8 px-4 pb-12 sm:px-6 lg:px-8">
       <nav className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <Link href="/configuracion" className="font-medium text-slate-500 transition-colors hover:text-[#4FAEB2]">
           Configuración Global

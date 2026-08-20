@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   isLikelyDuplicateFlowError,
@@ -39,6 +40,7 @@ function fmt(iso: string) {
 
 function FlowsListContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const sorteoIdParam = searchParams?.get("sorteo_id")?.trim() || null;
 
   const [rows, setRows] = useState<FlowRow[]>([]);
@@ -245,6 +247,13 @@ function FlowsListContent() {
 
   return (
     <div className="space-y-4">
+      <button
+        type="button"
+        onClick={() => router.back()}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        <ArrowLeft className="h-4 w-4" /> Volver
+      </button>
       <div className="flex flex-wrap justify-between gap-3 items-start">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Flujos conversacionales</h1>
