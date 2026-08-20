@@ -94,9 +94,16 @@ async function handle(request: NextRequest) {
   let reassigned = 0;
   let unassigned = 0;
   let errors = 0;
+  // Contadores del pase mid-conversation (chats sin respuesta desde el último
+  // mensaje del cliente pasando el SLA). Se reportan separados para no confundir
+  // con el pase clásico de primer contacto.
+  let stalledScanned = 0;
+  let stalledReassigned = 0;
+  let stalledUnassigned = 0;
   const detail: Array<Record<string, unknown>> = [];
 
   for (const empresaId of empresaIds) {
+    // ============ PASE 1: SLA de primera respuesta ============
     let candidates: string[] = [];
     try {
       const r = await pool.query(
@@ -115,28 +122,96 @@ async function handle(request: NextRequest) {
       candidates = (r.rows as Array<{ id: string }>).map((x) => x.id);
     } catch (e) {
       errors += 1;
-      detail.push({ empresa_id_short: empresaId.slice(0, 8), error: e instanceof Error ? e.message : String(e) });
-      continue;
+      detail.push({ empresa_id_short: empresaId.slice(0, 8), stage: "first-response", error: e instanceof Error ? e.message : String(e) });
     }
 
     scanned += candidates.length;
+
+    if (!dryRun) {
+      for (const conversationId of candidates) {
+        try {
+          const res = await pool.query(
+            `SELECT public.cc_reassign_on_sla($1, $2::uuid, $3::uuid) AS r`,
+            [schema, empresaId, conversationId]
+          );
+          const row = (res.rows[0] as { r?: { reassigned?: boolean; reason?: string } } | undefined)?.r;
+          if (row?.reassigned) reassigned += 1;
+          else if (row?.reason === "max_reassign_unassigned" || row?.reason === "no_other_agent") unassigned += 1;
+        } catch (e) {
+          errors += 1;
+          console.error("[cron][cc-sla-sweep][first-response] reassign falló", {
+            empresa_id_short: empresaId.slice(0, 8),
+            conversation_id_short: conversationId.slice(0, 8),
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+    }
+
+    // ============ PASE 2: SLA mid-conversation ============
+    // Cliente escribió último; vendedor no respondió; sla_minutes vencido.
+    // Resolvemos sla_minutes por empresa una vez para el WHERE (fallback 5).
+    let empresaSlaMinutes = 5;
+    try {
+      const s = await pool.query(
+        `SELECT sla_minutes FROM "${schema}".contact_center_settings
+          WHERE empresa_id = $1::uuid
+          ORDER BY (queue_id IS NULL AND channel_id IS NULL) DESC
+          LIMIT 1`,
+        [empresaId]
+      );
+      const val = (s.rows[0] as { sla_minutes?: number } | undefined)?.sla_minutes;
+      if (Number.isFinite(val)) empresaSlaMinutes = Number(val);
+    } catch {
+      /* usa fallback */
+    }
+
+    let stalledCandidates: string[] = [];
+    try {
+      const r = await pool.query(
+        `SELECT id::text AS id
+           FROM "${schema}".chat_conversations
+          WHERE empresa_id = $1::uuid
+            AND assigned_agent_id IS NOT NULL
+            AND status IN ('open','pending')
+            AND last_customer_message_at IS NOT NULL
+            AND (last_agent_message_at IS NULL OR last_agent_message_at < last_customer_message_at)
+            AND last_customer_message_at < now() - make_interval(mins => $2::integer)
+          ORDER BY last_customer_message_at ASC
+          LIMIT $3`,
+        [empresaId, empresaSlaMinutes, limit]
+      );
+      stalledCandidates = (r.rows as Array<{ id: string }>).map((x) => x.id);
+    } catch (e) {
+      errors += 1;
+      detail.push({ empresa_id_short: empresaId.slice(0, 8), stage: "mid-convo", error: e instanceof Error ? e.message : String(e) });
+    }
+
+    stalledScanned += stalledCandidates.length;
+
     if (dryRun) {
-      detail.push({ empresa_id_short: empresaId.slice(0, 8), candidates: candidates.length, dry_run: true });
+      detail.push({
+        empresa_id_short: empresaId.slice(0, 8),
+        first_response_candidates: candidates.length,
+        mid_convo_candidates: stalledCandidates.length,
+        sla_minutes: empresaSlaMinutes,
+        dry_run: true,
+      });
       continue;
     }
 
-    for (const conversationId of candidates) {
+    for (const conversationId of stalledCandidates) {
       try {
         const res = await pool.query(
-          `SELECT public.cc_reassign_on_sla($1, $2::uuid, $3::uuid) AS r`,
+          `SELECT public.cc_reassign_on_stalled_reply($1, $2::uuid, $3::uuid) AS r`,
           [schema, empresaId, conversationId]
         );
         const row = (res.rows[0] as { r?: { reassigned?: boolean; reason?: string } } | undefined)?.r;
-        if (row?.reassigned) reassigned += 1;
-        else if (row?.reason === "max_reassign_unassigned" || row?.reason === "no_other_agent") unassigned += 1;
+        if (row?.reassigned) stalledReassigned += 1;
+        else if (row?.reason === "max_reassign_unassigned" || row?.reason === "no_other_agent") stalledUnassigned += 1;
       } catch (e) {
         errors += 1;
-        console.error("[cron][cc-sla-sweep] reassign falló", {
+        console.error("[cron][cc-sla-sweep][mid-convo] reassign falló", {
           empresa_id_short: empresaId.slice(0, 8),
           conversation_id_short: conversationId.slice(0, 8),
           error: e instanceof Error ? e.message : String(e),
@@ -145,7 +220,12 @@ async function handle(request: NextRequest) {
     }
   }
 
-  console.info("[cron][cc-sla-sweep]", { scanned, reassigned, unassigned, errors, dry_run: dryRun });
+  console.info("[cron][cc-sla-sweep]", {
+    first_response: { scanned, reassigned, unassigned },
+    mid_convo: { scanned: stalledScanned, reassigned: stalledReassigned, unassigned: stalledUnassigned },
+    errors,
+    dry_run: dryRun,
+  });
 
   return NextResponse.json({
     ok: true,
@@ -153,9 +233,8 @@ async function handle(request: NextRequest) {
     ended_at: new Date().toISOString(),
     dry_run: dryRun,
     empresas: empresaIds.length,
-    scanned,
-    reassigned,
-    unassigned,
+    first_response: { scanned, reassigned, unassigned },
+    mid_convo: { scanned: stalledScanned, reassigned: stalledReassigned, unassigned: stalledUnassigned },
     errors,
     detail,
   });
