@@ -3065,7 +3065,7 @@ export function ConversacionesClient({
             </div>
           ) : (
             <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="px-4 py-3 border-b border-slate-200 bg-white shrink-0">
+              <div className="px-3 py-1.5 border-b border-slate-200 bg-white shrink-0">
                 {selected ? (
                   (() => {
                     const hasName = isHumanContactName(selected.contact.name, selected.contact.phone_number);
@@ -3109,7 +3109,7 @@ export function ConversacionesClient({
                             ) : null}
                             <span
                               aria-hidden="true"
-                              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ring-2 ring-white shadow-sm ${
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ring-1 ring-white shadow-sm ${
                                 hasName
                                   ? "bg-[#4FAEB2]/12 text-[#3F8E91] border border-[#4FAEB2]/30"
                                   : "bg-slate-100 text-slate-500 border border-slate-200"
@@ -3117,11 +3117,11 @@ export function ConversacionesClient({
                             >
                               {contactInitial}
                             </span>
-                            <div className="min-w-0 leading-tight">
-                              <p className="truncate text-sm font-semibold text-slate-900 max-w-[min(100%,18rem)]">
+                            <div className="min-w-0 leading-none">
+                              <p className="truncate text-[13px] font-semibold text-slate-900 max-w-[min(100%,18rem)]">
                                 {contactDisplayName}
                               </p>
-                              <p className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-slate-500">
+                              <p className="mt-0.5 truncate font-mono text-[10px] tabular-nums text-slate-500">
                                 {contactPhoneFallback(selected.contact.phone_number, selected.contact.name)}
                               </p>
                             </div>
@@ -3145,7 +3145,7 @@ export function ConversacionesClient({
                                 <button
                                   type="button"
                                   onClick={() => setPipelineEstadoModalOpen(true)}
-                                  className="inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-[11px] font-semibold transition-colors"
+                                  className="inline-flex items-center gap-1 rounded-xl border px-2.5 py-1 text-[11px] font-semibold transition-colors"
                                   style={
                                     info
                                       ? { borderColor: info.dot, backgroundColor: info.bg, color: info.fg }
@@ -3173,7 +3173,7 @@ export function ConversacionesClient({
                                   setTransferQueueTarget(selected.queue_id?.trim() ? selected.queue_id : "");
                                   setTransferModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1.5 rounded-xl bg-[#4FAEB2] px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-xl bg-[#4FAEB2] px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] disabled:opacity-50"
                               >
                                 <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
                                 Transferir
@@ -3184,7 +3184,7 @@ export function ConversacionesClient({
                                 type="button"
                                 disabled={opsBusy || finalizeSaving}
                                 onClick={() => void openFinalizeModal()}
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] disabled:opacity-50"
                               >
                                 <svg
                                   xmlns="http://www.w3.org/2000/svg"
@@ -3211,7 +3211,7 @@ export function ConversacionesClient({
                                     changeConversationStatus(selected.id, "open")
                                   )
                                 }
-                                className="inline-flex items-center rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                                className="inline-flex items-center rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-100 disabled:opacity-50"
                               >
                                 Reabrir
                               </button>
@@ -3221,7 +3221,7 @@ export function ConversacionesClient({
                                 type="button"
                                 disabled={releasingBot}
                                 onClick={() => void handleReleaseToBot()}
-                                className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:text-[#3F8E91] disabled:opacity-50"
+                                className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#4FAEB2]/60 hover:text-[#3F8E91] disabled:opacity-50"
                               >
                                 {releasingBot ? "…" : "Modo bot"}
                               </button>
@@ -3232,7 +3232,7 @@ export function ConversacionesClient({
                                 disabled={resendFlowStepLoading || opsBusy}
                                 onClick={() => void handleResendCurrentFlowStep()}
                                 title='Vuelve a enviar la pregunta o mensaje del nodo actual sin avanzar el flujo. Útil si el bot quedó trabado o el cliente no recibió el último paso.'
-                                className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-100 disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-100 disabled:opacity-50"
                               >
                                 <RefreshCw
                                   className={`h-3.5 w-3.5 shrink-0 ${resendFlowStepLoading ? "animate-spin" : ""}`}
@@ -3925,7 +3925,7 @@ export function ConversacionesClient({
                               </button>
                             </div>
                             {!windowOpen ? (
-                              <div className="border-b border-amber-100 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800">
+                              <div className="border-b border-amber-100 bg-amber-50 px-2.5 py-1 text-[11px] text-amber-800">
                                 Pasaron +24 h desde el último mensaje del cliente: para recontactarlo solo se
                                 puede enviar una plantilla aprobada.
                               </div>
