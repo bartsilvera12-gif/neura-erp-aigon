@@ -101,6 +101,13 @@ export type ChatInboxFilters = {
    */
   assigned_agent_id?: string | null;
   /**
+   * Si true, expande el filtro `assigned_agent_id` a "conversaciones donde ese
+   * asesor PARTICIPÓ alguna vez" — no solo las que tiene asignadas ahora. Suma
+   * las que atendió antes de una transferencia o que estaban asignadas a él y
+   * ya se cerraron. Solo sirve para vistas de reporting (historial).
+   */
+  agent_participation_history?: boolean;
+  /**
    * Paginación por "ventana creciente": trae las primeras `limit` conversaciones del alcance
    * (ordenadas por actividad). "Cargar más" en el cliente incrementa `limit`. Default 50.
    */
@@ -520,8 +527,16 @@ async function fetchChatConversationsUnsafe(
 
     // Filtro por asesor (admin): trae los chats de ese agente. El alcance omnicanal sigue
     // aplicándose para no-admin (más abajo), así que no expone conversaciones fuera de scope.
+    // La expansión `agent_participation_history` (chats donde el asesor escribió alguna vez)
+    // solo está implementada en el camino PG directo — PostgREST no soporta subqueries
+    // limpias. Si llegara con el flag por acá, degradamos a filtro estricto con warn.
     const fAgent = filters?.assigned_agent_id?.trim();
     if (fAgent) {
+      if (filters?.agent_participation_history) {
+        console.warn(
+          "[fetchChatConversations] agent_participation_history=true en camino PostgREST — no soportado, se aplica filtro estricto"
+        );
+      }
       qb = qb.eq("assigned_agent_id", fAgent);
     }
 

@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       .eq("empresa_id", empresaId)
       .in("status", statusList)
       .order("last_message_at", { ascending: false, nullsFirst: false })
-      .limit(200);
+      .limit(500);
 
     if (error) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });
@@ -65,7 +65,9 @@ export async function GET(request: NextRequest) {
       usuarioId,
       candidatas.map((r) => r.id)
     );
-    const rows = candidatas.filter((r) => visibles.has(r.id)).slice(0, 50);
+    // Tope visible en mobile. 200 para que ningún chat pendiente quede oculto —
+    // antes eran 50 y con tenants activos se cortaba y "faltaban conversaciones".
+    const rows = candidatas.filter((r) => visibles.has(r.id)).slice(0, 200);
 
     const contactIds = [...new Set(rows.map((r) => r.contact_id).filter((id): id is string => !!id))];
     const channelIds = [...new Set(rows.map((r) => r.channel_id).filter((id): id is string => !!id))];

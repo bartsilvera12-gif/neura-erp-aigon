@@ -267,7 +267,10 @@ function InboxReplyTurnBadges({ c, dense }: { c: InboxConversation; dense?: bool
   );
 }
 
-function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
+function parseInboxFilters(
+  sp: URLSearchParams,
+  opts?: { agentParticipationHistory?: boolean }
+): ChatInboxFilters | undefined {
   const rawA = sp.get("asignacion");
   const assignment: ChatInboxAssignmentFilter =
     rawA === "mios" ? "mine" : rawA === "sin_asignar" ? "unassigned" : "all";
@@ -280,13 +283,15 @@ function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
     statusRaw && ["open", "pending", "closed"].includes(statusRaw) ? statusRaw : null;
   const priority =
     priorityRaw && ["low", "medium", "high"].includes(priorityRaw) ? priorityRaw : null;
+  const agentPart = Boolean(opts?.agentParticipationHistory && assigned_agent_id);
   const has =
     assignment !== "all" ||
     (queue_id && queue_id.length > 0) ||
     (assigned_agent_id && assigned_agent_id.length > 0) ||
     status !== null ||
     priority !== null ||
-    (channel_id && channel_id.length > 0);
+    (channel_id && channel_id.length > 0) ||
+    agentPart;
   if (!has) return undefined;
   return {
     assignment,
@@ -295,6 +300,7 @@ function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
     status,
     priority,
     channel_id: channel_id && channel_id.length > 0 ? channel_id : null,
+    agent_participation_history: agentPart,
   };
 }
 
@@ -649,16 +655,23 @@ export function ConversacionesClient({
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent ?? false;
       const sp = new URLSearchParams(searchParamsRef.current?.toString() ?? "");
-      const baseFilters = parseInboxFilters(sp) ?? {};
+      // En historial exponemos "todos los chats donde el asesor participo" — no
+      // solo los asignados hoy. Sirve para reporting: incluye transferidos, cerrados,
+      // etc. donde el asesor escribio al menos un mensaje.
+      const baseFilters = parseInboxFilters(sp, {
+        agentParticipationHistory: mode === "historial",
+      }) ?? {};
       const qNow = debouncedQRef.current.trim();
       const filters = {
         ...baseFilters,
         limit: listLimitRef.current,
         q: qNow ? qNow : null,
       };
-      // Historial: no traer nada hasta que el usuario busque por nombre/número.
-      // Evita cargar todo el archivo de conversaciones en un tenant grande.
-      if (mode === "historial" && qNow.length === 0) {
+      // Historial: no traer nada hasta que el usuario busque por nombre/número
+      // O elija un asesor. Evita cargar todo el archivo en un tenant grande, pero
+      // sí permite ver "todos los chats de vendedor X" sin escribir el nombre.
+      const hasAgentFilter = Boolean(baseFilters.assigned_agent_id);
+      if (mode === "historial" && qNow.length === 0 && !hasAgentFilter) {
         setConversations([]);
         setListError(null);
         setLoadingList(false);

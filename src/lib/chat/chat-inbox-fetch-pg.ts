@@ -347,11 +347,52 @@ export async function fetchChatConversationsFromTenantPg(
 
   // Filtro por asesor (admin): chats de ese agente. El alcance omnicanal se aplica igual más abajo
   // para no-admin, así que no expone conversaciones fuera de scope.
+  // Si `agent_participation_history` es true, la vista es de reporting: incluir
+  // también conversaciones donde ese asesor escribió algún mensaje (aunque hoy
+  // esté asignada a otra persona o ya esté cerrada). Requiere resolver
+  // usuario_id del agente (chat_messages guarda sent_by_user_id, no agent_id).
   const fAgent = filters?.assigned_agent_id?.trim();
   if (fAgent) {
-    whereParts.push(`assigned_agent_id = $${pi}::uuid`);
-    params.push(fAgent);
-    pi++;
+    if (filters?.agent_participation_history) {
+      // Buscamos usuario_id del agente para el segundo brazo del OR.
+      let agentUsuarioId: string | null = null;
+      try {
+        const r = await pool.query(
+          `SELECT usuario_id::text AS usuario_id FROM "${dataSchema}".chat_agents WHERE id = $1::uuid LIMIT 1`,
+          [fAgent]
+        );
+        agentUsuarioId = (r.rows[0] as { usuario_id?: string } | undefined)?.usuario_id?.trim() ?? null;
+      } catch (e) {
+        console.warn("[chat-list] lookup agent.usuario_id falló", e instanceof Error ? e.message : String(e));
+      }
+
+      if (agentUsuarioId) {
+        // OR: currently-assigned OR conversación con mensaje del usuario del agente.
+        // Subquery a chat_messages acotada por empresa para que use el índice compuesto.
+        const idxAgent = pi;
+        const idxUsuario = pi + 1;
+        whereParts.push(
+          `(assigned_agent_id = $${idxAgent}::uuid OR id IN (
+             SELECT DISTINCT conversation_id
+             FROM "${dataSchema}".chat_messages
+             WHERE empresa_id = $1::uuid
+               AND sent_by_user_id = $${idxUsuario}::uuid
+           ))`
+        );
+        params.push(fAgent);
+        params.push(agentUsuarioId);
+        pi += 2;
+      } else {
+        // Sin usuario_id no podemos hacer el OR; degradamos al filtro estricto.
+        whereParts.push(`assigned_agent_id = $${pi}::uuid`);
+        params.push(fAgent);
+        pi++;
+      }
+    } else {
+      whereParts.push(`assigned_agent_id = $${pi}::uuid`);
+      params.push(fAgent);
+      pi++;
+    }
   }
 
   const fq = filters?.queue_id?.trim();
