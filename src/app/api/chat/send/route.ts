@@ -229,6 +229,45 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.warn("[api/chat/send] last_agent_message_at_skip", e instanceof Error ? e.message : String(e));
       }
+
+      // Self-assignment: si el chat estaba SIN asignar y respondió un humano,
+      // el mensaje "reclama" el chat para ese vendedor. Antes quedaba visible
+      // para todos indefinidamente y perdían tiempo abriéndolo en paralelo.
+      if (senderType === "human" && auth.user?.id) {
+        try {
+          const sch = tenantPg && pool ? assertAllowedChatDataSchema(dataSchema) : dataSchema;
+          // Resolver chat_agents.id del usuario que responde (misma empresa).
+          let agentId: string | null = null;
+          if (tenantPg && pool) {
+            const usrRow = await pool.query(
+              `SELECT id::text AS usuario_id FROM "${sch}".usuarios WHERE auth_user_id = $1::uuid LIMIT 1`,
+              [auth.user.id]
+            );
+            const usuarioId = (usrRow.rows[0] as { usuario_id?: string } | undefined)?.usuario_id ?? null;
+            if (usuarioId) {
+              const agRow = await pool.query(
+                `SELECT id::text AS id FROM "${sch}".chat_agents
+                 WHERE usuario_id = $1::uuid AND empresa_id = $2::uuid AND is_active = true LIMIT 1`,
+                [usuarioId, empresaId]
+              );
+              agentId = (agRow.rows[0] as { id?: string } | undefined)?.id ?? null;
+            }
+            if (agentId) {
+              await pool.query(
+                `UPDATE "${sch}".chat_conversations
+                    SET assigned_agent_id = $2::uuid,
+                        initial_assignment_at = COALESCE(initial_assignment_at, $3::timestamptz),
+                        assignment_wait_code = NULL,
+                        updated_at = $3::timestamptz
+                  WHERE id = $1::uuid AND empresa_id = $4::uuid AND assigned_agent_id IS NULL`,
+                [conversationId, agentId, ts, empresaId]
+              );
+            }
+          }
+        } catch (e) {
+          console.warn("[api/chat/send] self_assign_skip", e instanceof Error ? e.message : String(e));
+        }
+      }
     }
 
     return NextResponse.json({

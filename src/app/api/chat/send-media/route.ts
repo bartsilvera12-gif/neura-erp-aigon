@@ -21,7 +21,8 @@ import {
 } from "@/lib/chat/ycloud-send-service";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { getChatPostgresPool } from "@/lib/supabase/chat-pg-pool";
-import { isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
+import { assertAllowedChatDataSchema, isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
+import { contactCenterV1Enabled } from "@/lib/chat/contact-center-inbound";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
@@ -424,6 +425,44 @@ export async function POST(request: NextRequest) {
       from_me: true,
       sender_type: "human",
     });
+
+    // Self-assignment + last_agent_message_at (mismo criterio que /api/chat/send).
+    // Si el chat estaba sin asignar y respondió un humano, se reclama el chat.
+    if (contactCenterV1Enabled() && tenantPg && pool && auth.user?.id) {
+      try {
+        const sch = assertAllowedChatDataSchema(dataSchema);
+        await pool.query(
+          `UPDATE "${sch}".chat_conversations SET last_agent_message_at = $2::timestamptz WHERE id = $1::uuid AND empresa_id = $3::uuid`,
+          [conversationId, ts, empresaId]
+        );
+        const usrRow = await pool.query(
+          `SELECT id::text AS usuario_id FROM "${sch}".usuarios WHERE auth_user_id = $1::uuid LIMIT 1`,
+          [auth.user.id]
+        );
+        const usuarioId = (usrRow.rows[0] as { usuario_id?: string } | undefined)?.usuario_id ?? null;
+        if (usuarioId) {
+          const agRow = await pool.query(
+            `SELECT id::text AS id FROM "${sch}".chat_agents
+             WHERE usuario_id = $1::uuid AND empresa_id = $2::uuid AND is_active = true LIMIT 1`,
+            [usuarioId, empresaId]
+          );
+          const agentId = (agRow.rows[0] as { id?: string } | undefined)?.id ?? null;
+          if (agentId) {
+            await pool.query(
+              `UPDATE "${sch}".chat_conversations
+                  SET assigned_agent_id = $2::uuid,
+                      initial_assignment_at = COALESCE(initial_assignment_at, $3::timestamptz),
+                      assignment_wait_code = NULL,
+                      updated_at = $3::timestamptz
+                WHERE id = $1::uuid AND empresa_id = $4::uuid AND assigned_agent_id IS NULL`,
+              [conversationId, agentId, ts, empresaId]
+            );
+          }
+        }
+      } catch (e) {
+        console.warn("[api/chat/send-media] self_assign_skip", e instanceof Error ? e.message : String(e));
+      }
+    }
 
     return NextResponse.json({ ok: true, wa_message_id: sendResult.waMessageId, public_url: publicUrl });
   } catch (e) {
