@@ -233,12 +233,12 @@ export async function POST(request: NextRequest) {
       // Self-assignment: si el chat estaba SIN asignar y respondió un humano,
       // el mensaje "reclama" el chat para ese vendedor. Antes quedaba visible
       // para todos indefinidamente y perdían tiempo abriéndolo en paralelo.
+      // Soporta ambos paths (PG pool para tenants erp_*, supabase para el resto).
       if (senderType === "human" && auth.user?.id) {
         try {
-          const sch = tenantPg && pool ? assertAllowedChatDataSchema(dataSchema) : dataSchema;
-          // Resolver chat_agents.id del usuario que responde (misma empresa).
           let agentId: string | null = null;
           if (tenantPg && pool) {
+            const sch = assertAllowedChatDataSchema(dataSchema);
             const usrRow = await pool.query(
               `SELECT id::text AS usuario_id FROM "${sch}".usuarios WHERE auth_user_id = $1::uuid LIMIT 1`,
               [auth.user.id]
@@ -262,6 +262,37 @@ export async function POST(request: NextRequest) {
                   WHERE id = $1::uuid AND empresa_id = $4::uuid AND assigned_agent_id IS NULL`,
                 [conversationId, agentId, ts, empresaId]
               );
+            }
+          } else {
+            // Path PostgREST (aigonerp): usuario_id via auth_user_id, chat_agents.id via usuario_id.
+            const { data: urow } = await supabase
+              .from("usuarios")
+              .select("id")
+              .eq("auth_user_id", auth.user.id)
+              .maybeSingle();
+            const usuarioId = (urow as { id?: string } | null)?.id ?? null;
+            if (usuarioId) {
+              const { data: arow } = await supabase
+                .from("chat_agents")
+                .select("id")
+                .eq("usuario_id", usuarioId)
+                .eq("empresa_id", empresaId)
+                .eq("is_active", true)
+                .limit(1)
+                .maybeSingle();
+              agentId = (arow as { id?: string } | null)?.id ?? null;
+            }
+            if (agentId) {
+              await supabase
+                .from("chat_conversations")
+                .update({
+                  assigned_agent_id: agentId,
+                  assignment_wait_code: null,
+                  updated_at: ts,
+                })
+                .eq("id", conversationId)
+                .eq("empresa_id", empresaId)
+                .is("assigned_agent_id", null);
             }
           }
         } catch (e) {

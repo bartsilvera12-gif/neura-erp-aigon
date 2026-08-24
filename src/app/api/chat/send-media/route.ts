@@ -428,25 +428,30 @@ export async function POST(request: NextRequest) {
 
     // Self-assignment + last_agent_message_at (mismo criterio que /api/chat/send).
     // Si el chat estaba sin asignar y respondió un humano, se reclama el chat.
-    if (contactCenterV1Enabled() && tenantPg && pool && auth.user?.id) {
+    // Soporta ambos paths (PG pool y PostgREST) — antes solo tenantPg y aigonerp
+    // no cae en ese branch, por eso el self-assign no se disparaba nunca.
+    if (contactCenterV1Enabled() && auth.user?.id) {
       try {
-        const sch = assertAllowedChatDataSchema(dataSchema);
-        await pool.query(
-          `UPDATE "${sch}".chat_conversations SET last_agent_message_at = $2::timestamptz WHERE id = $1::uuid AND empresa_id = $3::uuid`,
-          [conversationId, ts, empresaId]
-        );
-        const usrRow = await pool.query(
-          `SELECT id::text AS usuario_id FROM "${sch}".usuarios WHERE auth_user_id = $1::uuid LIMIT 1`,
-          [auth.user.id]
-        );
-        const usuarioId = (usrRow.rows[0] as { usuario_id?: string } | undefined)?.usuario_id ?? null;
-        if (usuarioId) {
-          const agRow = await pool.query(
-            `SELECT id::text AS id FROM "${sch}".chat_agents
-             WHERE usuario_id = $1::uuid AND empresa_id = $2::uuid AND is_active = true LIMIT 1`,
-            [usuarioId, empresaId]
+        let agentId: string | null = null;
+        if (tenantPg && pool) {
+          const sch = assertAllowedChatDataSchema(dataSchema);
+          await pool.query(
+            `UPDATE "${sch}".chat_conversations SET last_agent_message_at = $2::timestamptz WHERE id = $1::uuid AND empresa_id = $3::uuid`,
+            [conversationId, ts, empresaId]
           );
-          const agentId = (agRow.rows[0] as { id?: string } | undefined)?.id ?? null;
+          const usrRow = await pool.query(
+            `SELECT id::text AS usuario_id FROM "${sch}".usuarios WHERE auth_user_id = $1::uuid LIMIT 1`,
+            [auth.user.id]
+          );
+          const usuarioId = (usrRow.rows[0] as { usuario_id?: string } | undefined)?.usuario_id ?? null;
+          if (usuarioId) {
+            const agRow = await pool.query(
+              `SELECT id::text AS id FROM "${sch}".chat_agents
+               WHERE usuario_id = $1::uuid AND empresa_id = $2::uuid AND is_active = true LIMIT 1`,
+              [usuarioId, empresaId]
+            );
+            agentId = (agRow.rows[0] as { id?: string } | undefined)?.id ?? null;
+          }
           if (agentId) {
             await pool.query(
               `UPDATE "${sch}".chat_conversations
@@ -457,6 +462,43 @@ export async function POST(request: NextRequest) {
                 WHERE id = $1::uuid AND empresa_id = $4::uuid AND assigned_agent_id IS NULL`,
               [conversationId, agentId, ts, empresaId]
             );
+          }
+        } else {
+          // Path PostgREST (aigonerp). Primero actualiza last_agent_message_at,
+          // después busca chat_agent y self-assign si estaba null.
+          await supabase
+            .from("chat_conversations")
+            .update({ last_agent_message_at: ts })
+            .eq("id", conversationId)
+            .eq("empresa_id", empresaId);
+          const { data: urow } = await supabase
+            .from("usuarios")
+            .select("id")
+            .eq("auth_user_id", auth.user.id)
+            .maybeSingle();
+          const usuarioId = (urow as { id?: string } | null)?.id ?? null;
+          if (usuarioId) {
+            const { data: arow } = await supabase
+              .from("chat_agents")
+              .select("id")
+              .eq("usuario_id", usuarioId)
+              .eq("empresa_id", empresaId)
+              .eq("is_active", true)
+              .limit(1)
+              .maybeSingle();
+            agentId = (arow as { id?: string } | null)?.id ?? null;
+          }
+          if (agentId) {
+            await supabase
+              .from("chat_conversations")
+              .update({
+                assigned_agent_id: agentId,
+                assignment_wait_code: null,
+                updated_at: ts,
+              })
+              .eq("id", conversationId)
+              .eq("empresa_id", empresaId)
+              .is("assigned_agent_id", null);
           }
         }
       } catch (e) {
