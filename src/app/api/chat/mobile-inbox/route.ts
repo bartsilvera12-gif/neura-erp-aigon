@@ -130,8 +130,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(successResponse({ conversations }), {
       headers: {
-        // El cliente revalida con polling de 30s; permitimos servir cached con SWR.
-        "Cache-Control": "private, max-age=0, stale-while-revalidate=15",
+        // no-store: en Android WebView el cache HTTP se colgaba con respuestas
+        // viejas (nombres viejos, previews stale) aún después de que el server
+        // devolviera data fresca. SWR ya hace su propio polling — no perdemos
+        // nada bloqueando el HTTP cache.
+        "Cache-Control": "no-store, must-revalidate",
+        Pragma: "no-cache",
       },
     });
   } catch (e) {

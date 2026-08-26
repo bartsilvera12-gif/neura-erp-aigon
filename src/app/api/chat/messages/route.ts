@@ -56,7 +56,9 @@ export async function GET(request: NextRequest) {
       }
 
       const rows = await pgSelectChatMessagesForInboxApi(pool, dataSchema, conversationId);
-      return NextResponse.json(successResponse(rows));
+      return NextResponse.json(successResponse(rows), {
+        headers: { "Cache-Control": "no-store, must-revalidate", Pragma: "no-cache" },
+      });
     }
 
     const { data: conv, error: cErr } = await supabase
@@ -102,7 +104,9 @@ export async function GET(request: NextRequest) {
     if (error) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });
     }
-    return NextResponse.json(successResponse(data ?? []));
+    return NextResponse.json(successResponse(data ?? []), {
+      headers: { "Cache-Control": "no-store, must-revalidate", Pragma: "no-cache" },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error";
     return NextResponse.json(errorResponse(msg), { status: 500 });
