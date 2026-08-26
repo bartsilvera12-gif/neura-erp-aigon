@@ -72,14 +72,31 @@ export async function GET(request: NextRequest) {
     const contactIds = [...new Set(rows.map((r) => r.contact_id).filter((id): id is string => !!id))];
     const channelIds = [...new Set(rows.map((r) => r.channel_id).filter((id): id is string => !!id))];
 
+    // Chunkeo por 50: Cloudflare devuelve 502 con .in("id", [+100 UUIDs]) por
+    // tamaño de URL. Batches chicos y merge del resultado.
+    async function fetchContactsChunked(ids: string[]): Promise<{
+      data: Array<{ id: string; name: string | null; phone_number: string | null }>;
+      error: { message: string } | null;
+    }> {
+      const CHUNK = 50;
+      const acc: Array<{ id: string; name: string | null; phone_number: string | null }> = [];
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const batch = ids.slice(i, i + CHUNK);
+        const { data, error } = await supabase
+          .from("chat_contacts")
+          .select("id, name, phone_number")
+          .eq("empresa_id", empresaId)
+          .in("id", batch);
+        if (error) return { data: acc, error: { message: error.message } };
+        if (data) acc.push(...(data as Array<{ id: string; name: string | null; phone_number: string | null }>));
+      }
+      return { data: acc, error: null };
+    }
+
     const [contactsRes, channelsRes] = await Promise.all([
       contactIds.length > 0
-        ? supabase
-            .from("chat_contacts")
-            .select("id, name, phone_number")
-            .eq("empresa_id", empresaId)
-            .in("id", contactIds)
-        : Promise.resolve({ data: [], error: null } as { data: unknown[]; error: null }),
+        ? fetchContactsChunked(contactIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; name: string | null; phone_number: string | null }>, error: null as { message: string } | null }),
       channelIds.length > 0
         ? supabase
             .from("chat_channels")
