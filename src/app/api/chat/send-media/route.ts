@@ -364,6 +364,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ts = new Date().toISOString();
+    // content: incluye URL para trazabilidad (aparece solo en raw/log si algo falla).
     const contentLabel =
       outboundMessageType === "image"
         ? caption
@@ -380,6 +381,16 @@ export async function POST(request: NextRequest) {
             : caption
               ? `Documento: ${origName}\n${caption}\n${publicUrl}`
               : `Documento: ${origName}\n${publicUrl}`;
+    // preview: LIMPIO para el listado ("📷 Imagen" o "📷 caption") — sin URL.
+    // Antes la card mostraba literal la URL y quedaba horrible.
+    const previewLabel =
+      outboundMessageType === "image"
+        ? caption ? `📷 ${caption}` : "📷 Imagen"
+        : outboundMessageType === "audio"
+          ? caption ? `🎤 ${caption}` : "🎤 Nota de voz"
+          : outboundMessageType === "video"
+            ? caption ? `🎥 ${caption}` : "🎥 Video"
+            : caption ? `📎 ${origName} · ${caption}` : `📎 ${origName}`;
 
     const { error: insErr } = await supabase.from("chat_messages").insert({
       empresa_id: empresaId,
@@ -416,7 +427,7 @@ export async function POST(request: NextRequest) {
       .from("chat_conversations")
       .update({
         last_message_at: ts,
-        last_message_preview: contentLabel.slice(0, 280),
+        last_message_preview: previewLabel.slice(0, 280),
         updated_at: ts,
       })
       .eq("id", conversationId);
