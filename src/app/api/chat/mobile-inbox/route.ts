@@ -89,6 +89,21 @@ export async function GET(request: NextRequest) {
         : Promise.resolve({ data: [], error: null } as { data: unknown[]; error: null }),
     ]);
 
+    // Log explícito si algo falla — el trace silencioso nos dejó ciegos con
+    // contact_nombre=null en la APK.
+    if ((contactsRes as { error?: { message?: string } | null }).error) {
+      console.error("[mobile-inbox] contacts_query_error", {
+        message: (contactsRes as { error?: { message?: string } | null }).error?.message,
+        contactIdsCount: contactIds.length,
+        empresa_id_prefix: String(empresaId).slice(0, 8),
+      });
+    }
+    if ((channelsRes as { error?: { message?: string } | null }).error) {
+      console.error("[mobile-inbox] channels_query_error", {
+        message: (channelsRes as { error?: { message?: string } | null }).error?.message,
+      });
+    }
+
     const contactById = new Map<string, { nombre: string | null; telefono: string | null }>();
     for (const c of (contactsRes.data ?? []) as Array<{
       id: string;
@@ -128,12 +143,19 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json(successResponse({ conversations }), {
+    // DEBUG TEMPORAL: expone en la respuesta si contacts/channels fallaron y
+    // cuántos rows se resolvieron. Se puede quitar cuando el bug esté cerrado.
+    const debug = {
+      contact_ids_count: contactIds.length,
+      contacts_resolved: contactById.size,
+      contacts_error: (contactsRes as { error?: { message?: string } | null }).error?.message ?? null,
+      channel_ids_count: channelIds.length,
+      channels_resolved: channelById.size,
+      channels_error: (channelsRes as { error?: { message?: string } | null }).error?.message ?? null,
+    };
+
+    return NextResponse.json(successResponse({ conversations, debug }), {
       headers: {
-        // no-store: en Android WebView el cache HTTP se colgaba con respuestas
-        // viejas (nombres viejos, previews stale) aún después de que el server
-        // devolviera data fresca. SWR ya hace su propio polling — no perdemos
-        // nada bloqueando el HTTP cache.
         "Cache-Control": "no-store, must-revalidate",
         Pragma: "no-cache",
       },
