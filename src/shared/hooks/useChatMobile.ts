@@ -64,7 +64,12 @@ export function useMobileInbox(opts?: { onlyOpen?: boolean }) {
       revalidateOnFocus: true,
       dedupingInterval: 15_000,
       refreshInterval: 30_000,
-      keepPreviousData: true,
+      // keepPreviousData: false + revalidateIfStale: true → mount siempre
+      // refetchea desde el server (skeleton 1-2s) en vez de mostrar cache vieja.
+      // Antes veíamos "102 chats" (cache pre-deploy) y luego saltaba a "26" al
+      // llegar la respuesta filtrada — se rompía la confianza del usuario.
+      keepPreviousData: false,
+      revalidateIfStale: true,
     }
   );
   return {
