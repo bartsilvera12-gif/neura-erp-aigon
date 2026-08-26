@@ -34,6 +34,8 @@ import {
 } from "lucide-react";
 import { signOut } from "@/lib/auth";
 import { useRouter } from "next/navigation";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { canAccessSidebarSlug } from "@/lib/modulos/route-slug-map";
 
 /**
  * Menú lateral mobile (sheet) — versión liviana.
@@ -52,6 +54,8 @@ type Item = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Slug para gate de módulos (`canAccessSidebarSlug`). */
+  slug: string;
 };
 
 type Section = {
@@ -68,62 +72,62 @@ const SECTIONS: Section[] = [
   {
     title: "Inicio",
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/dashboard/gerencia", label: "Gerencia", icon: TrendingUp },
+      { href: "/", label: "Dashboard", icon: LayoutDashboard, slug: "dashboard" },
+      { href: "/dashboard/gerencia", label: "Gerencia", icon: TrendingUp, slug: "gerencia" },
     ],
   },
   {
     title: "Comercial",
     items: [
-      { href: "/clientes", label: "Clientes", icon: Users },
-      { href: "/crm", label: "CRM Funnel", icon: Sparkles },
-      { href: "/gestion-clientes", label: "Gestión Clientes", icon: Users },
-      { href: "/ventas", label: "Ventas", icon: ShoppingCart },
-      { href: "/comisiones", label: "Comisiones", icon: Percent },
-      { href: "/planes", label: "Planes", icon: FileText },
-      { href: "/dashboard/agenda", label: "Agenda", icon: CalendarDays },
+      { href: "/clientes", label: "Clientes", icon: Users, slug: "clientes" },
+      { href: "/crm", label: "CRM Funnel", icon: Sparkles, slug: "crm" },
+      { href: "/gestion-clientes", label: "Gestión Clientes", icon: Users, slug: "gestion-clientes" },
+      { href: "/ventas", label: "Ventas", icon: ShoppingCart, slug: "ventas" },
+      { href: "/comisiones", label: "Comisiones", icon: Percent, slug: "comisiones" },
+      { href: "/planes", label: "Planes", icon: FileText, slug: "planes" },
+      { href: "/dashboard/agenda", label: "Agenda", icon: CalendarDays, slug: "agenda" },
     ],
   },
   {
     title: "Finanzas",
     items: [
-      { href: "/pagos", label: "Pagos", icon: Banknote },
-      { href: "/gastos", label: "Gastos", icon: Receipt },
-      { href: "/notas-credito", label: "Notas de crédito", icon: ScrollText },
-      { href: "/reportes", label: "Reportes", icon: BarChart3 },
+      { href: "/pagos", label: "Pagos", icon: Banknote, slug: "pagos" },
+      { href: "/gastos", label: "Gastos", icon: Receipt, slug: "gastos" },
+      { href: "/notas-credito", label: "Notas de crédito", icon: ScrollText, slug: "notas_credito" },
+      { href: "/reportes", label: "Reportes", icon: BarChart3, slug: "reportes" },
     ],
   },
   {
     title: "Operaciones",
     items: [
-      { href: "/inventario", label: "Inventario", icon: Package },
-      { href: "/compras", label: "Compras", icon: Package },
-      { href: "/proveedores", label: "Proveedores", icon: Building2 },
-      { href: "/dashboard/proyectos", label: "Proyectos", icon: FolderKanban },
+      { href: "/inventario", label: "Inventario", icon: Package, slug: "inventario" },
+      { href: "/compras", label: "Compras", icon: Package, slug: "compras" },
+      { href: "/proveedores", label: "Proveedores", icon: Building2, slug: "compras" },
+      { href: "/dashboard/proyectos", label: "Proyectos", icon: FolderKanban, slug: "proyectos" },
     ],
   },
   {
     title: "Omnicanal",
     items: [
-      { href: "/dashboard/conversaciones", label: "Conversaciones", icon: MessageCircle },
-      { href: "/dashboard/conversaciones-finalizadas", label: "Finalizadas", icon: ListChecks },
-      { href: "/dashboard/monitoreo", label: "Monitoreo", icon: Sparkles },
-      { href: "/dashboard/campanas", label: "Campañas", icon: SendHorizontal },
-      { href: "/dashboard/etiquetas", label: "Etiquetas", icon: Tags },
+      { href: "/dashboard/conversaciones", label: "Conversaciones", icon: MessageCircle, slug: "conversaciones" },
+      { href: "/dashboard/conversaciones-finalizadas", label: "Finalizadas", icon: ListChecks, slug: "conversaciones-finalizadas" },
+      { href: "/dashboard/monitoreo", label: "Monitoreo", icon: Sparkles, slug: "monitoreo" },
+      { href: "/dashboard/campanas", label: "Campañas", icon: SendHorizontal, slug: "campanas" },
+      { href: "/dashboard/etiquetas", label: "Etiquetas", icon: Tags, slug: "etiquetas" },
     ],
   },
   {
     title: "Marketing y Automatización",
     items: [
-      { href: "/dashboard/marketing-ops", label: "Marketing Ops", icon: Megaphone },
-      { href: "/sorteos", label: "Sorteos", icon: Ticket },
+      { href: "/dashboard/marketing-ops", label: "Marketing Ops", icon: Megaphone, slug: "marketing_ops" },
+      { href: "/sorteos", label: "Sorteos", icon: Ticket, slug: "sorteos" },
     ],
   },
   {
     title: "Administración",
     items: [
-      { href: "/usuarios", label: "Usuarios", icon: UserCog },
-      { href: "/configuracion", label: "Configuración", icon: Settings },
+      { href: "/usuarios", label: "Usuarios", icon: UserCog, slug: "usuarios" },
+      { href: "/configuracion", label: "Configuración", icon: Settings, slug: "configuracion" },
     ],
   },
 ];
@@ -138,6 +142,22 @@ export default function MobileMenu({
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [allowedSlugs, setAllowedSlugs] = useState<Set<string> | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  // Cargar módulos habilitados una sola vez para restringir el menú.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchWithSupabaseSession("/api/empresas/module-access", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { superAdmin?: boolean; slugs?: string[] } | null) => {
+        if (cancelled || !j) return;
+        setIsSuperAdmin(Boolean(j.superAdmin));
+        setAllowedSlugs(new Set(j.slugs ?? []));
+      })
+      .catch(() => { /* silencioso — sin data se ocultan todos los ítems no-omnicanal */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // ESC para cerrar.
   useEffect(() => {
@@ -166,14 +186,22 @@ export default function MobileMenu({
 
   const filteredSections = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return SECTIONS;
-    return SECTIONS
+    // Primer filtro: por acceso (módulos habilitados para este usuario).
+    // Si aún no cargaron los slugs, no mostramos nada para no pintar módulos
+    // que después se ocultan (mejor UX que ver todo y perderse las opciones).
+    const grants = allowedSlugs ?? new Set<string>();
+    const byAccess = SECTIONS.map((s) => ({
+      ...s,
+      items: s.items.filter((it) => canAccessSidebarSlug(it.slug, grants, isSuperAdmin)),
+    })).filter((s) => s.items.length > 0);
+    if (!q) return byAccess;
+    return byAccess
       .map((s) => ({
         ...s,
         items: s.items.filter((it) => it.label.toLowerCase().includes(q)),
       }))
       .filter((s) => s.items.length > 0);
-  }, [query]);
+  }, [query, allowedSlugs, isSuperAdmin]);
 
   return (
     <>

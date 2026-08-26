@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageCircle, ShoppingCart, Users, Menu } from "lucide-react";
+import { MessageCircle, Menu } from "lucide-react";
 
 /**
  * Navegación inferior fija para la UI mobile. 5 secciones primarias + "Más" que abre
@@ -30,8 +30,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: MessageCircle,
     matchPrefix: "/dashboard/conversaciones",
   },
-  { href: "/ventas", label: "Ventas", icon: ShoppingCart, matchPrefix: "/ventas" },
-  { href: "/clientes", label: "Clientes", icon: Users, matchPrefix: "/clientes" },
 ];
 
 export default function BottomNav({ onOpenMenu }: { onOpenMenu: () => void }) {
