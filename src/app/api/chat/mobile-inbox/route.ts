@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { requireEmpresaTenantServiceRole } from "@/lib/chat/empresa-tenant-service-role";
-import { filterConversationIdsByOmnicanalScope } from "@/lib/chat/omnicanal-scope";
+import { filterConversationIdsByOmnicanalScope, getOmnicanalScope } from "@/lib/chat/omnicanal-scope";
 
 /**
  * GET /api/chat/mobile-inbox
@@ -65,9 +65,54 @@ export async function GET(request: NextRequest) {
       usuarioId,
       candidatas.map((r) => r.id)
     );
-    // Tope visible en mobile. 200 para que ningún chat pendiente quede oculto —
-    // antes eran 50 y con tenants activos se cortaba y "faltaban conversaciones".
-    const rows = candidatas.filter((r) => visibles.has(r.id)).slice(0, 200);
+
+    // Filtro fuerte para vendedores mobile: SOLO chats asignados a este usuario.
+    // El scope omnicanal incluye "sin-asignar de su cola" (para que puedan tomar
+    // chats), pero eso hace que TODOS los vendedores vean la misma lista de
+    // sin-asignar → confusión. En mobile un vendedor solo ve lo SUYO. El pool
+    // de sin-asignar queda para admin/desktop.
+    // Admins con bypass no entran a este bloque (scope.role='admin').
+    const scope = await getOmnicanalScope(supabase, empresaId, usuarioId);
+    let restrictToOwnAssigned = false;
+    const ownAgentIds = new Set<string>();
+    if (scope.role === "agente" || scope.role === null) {
+      const { data: myAgents } = await supabase
+        .from("chat_agents")
+        .select("id")
+        .eq("empresa_id", empresaId)
+        .eq("usuario_id", usuarioId)
+        .eq("is_active", true);
+      for (const a of (myAgents ?? []) as Array<{ id?: string }>) {
+        const id = (a.id ?? "").trim();
+        if (id) ownAgentIds.add(id);
+      }
+      if (ownAgentIds.size > 0) restrictToOwnAssigned = true;
+    }
+
+    let rows = candidatas.filter((r) => visibles.has(r.id));
+    if (restrictToOwnAssigned) {
+      // Necesitamos assigned_agent_id de cada conv. Chunk por 50 para no romper
+      // Cloudflare con URLs largas (mismo problema que teníamos con contactos).
+      const convIds = rows.map((r) => r.id);
+      const assignedByConv = new Map<string, string | null>();
+      const CHUNK = 50;
+      for (let i = 0; i < convIds.length; i += CHUNK) {
+        const batch = convIds.slice(i, i + CHUNK);
+        const { data } = await supabase
+          .from("chat_conversations")
+          .select("id, assigned_agent_id")
+          .eq("empresa_id", empresaId)
+          .in("id", batch);
+        for (const c of (data ?? []) as Array<{ id: string; assigned_agent_id: string | null }>) {
+          assignedByConv.set(c.id, c.assigned_agent_id ?? null);
+        }
+      }
+      rows = rows.filter((r) => {
+        const aid = assignedByConv.get(r.id);
+        return aid != null && ownAgentIds.has(aid);
+      });
+    }
+    rows = rows.slice(0, 200);
 
     const contactIds = [...new Set(rows.map((r) => r.contact_id).filter((id): id is string => !!id))];
     const channelIds = [...new Set(rows.map((r) => r.channel_id).filter((id): id is string => !!id))];
