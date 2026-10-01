@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Salida standalone para el Dockerfile (node server.js): la imagen solo lleva el
+  // subconjunto de node_modules que Next rastreó → mucha menos RAM que `next start`.
+  output: "standalone",
   /**
    * El host de build self-hosted (Coolify/nixpacks) tiene RAM acotada y el
    * OOM-killer mata la fase "Running TypeScript"/ESLint de `next build`
