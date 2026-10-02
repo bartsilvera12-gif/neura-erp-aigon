@@ -10,6 +10,7 @@ import { normalizeChannelType } from "@/lib/chat/channel-type-utils";
 import {
   fetchChatChannels,
   patchChatChannelActivo,
+  purgeChatConversations,
   type ChatChannelRow,
 } from "@/lib/chat/actions";
 import { OMNICHANNEL_CARD_DEFINITIONS } from "@/lib/chat/omnichannel-catalog";
@@ -59,6 +60,9 @@ export function CanalesHubInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggleBusyId, setToggleBusyId] = useState<string | null>(null);
+  const [purgeChannel, setPurgeChannel] = useState<string>("all");
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,6 +126,39 @@ export function CanalesHubInner() {
       setError(e instanceof Error ? e.message : "No se pudo actualizar el canal");
     } finally {
       setToggleBusyId(null);
+    }
+  }
+
+  async function handlePurge() {
+    const todos = purgeChannel === "all";
+    const canal = todos ? null : rows.find((r) => r.id === purgeChannel) ?? null;
+    const alcance = todos
+      ? "TODOS los canales"
+      : `el canal “${canal?.nombre ?? "WhatsApp"}”`;
+    const confirm1 = window.prompt(
+      `Vas a borrar el historial de conversaciones de ${alcance}.\n` +
+        `Se eliminan conversaciones y mensajes (los contactos se conservan). Esta acción no se puede deshacer.\n\n` +
+        `Escribí LIMPIAR para confirmar:`
+    );
+    if ((confirm1 ?? "").trim().toUpperCase() !== "LIMPIAR") {
+      setPurgeMsg(null);
+      return;
+    }
+    setPurgeBusy(true);
+    setPurgeMsg(null);
+    setError(null);
+    try {
+      const { deleted } = await purgeChatConversations(todos ? undefined : purgeChannel);
+      setPurgeMsg(
+        deleted === 0
+          ? "No había conversaciones para borrar."
+          : `Se eliminaron ${deleted} conversación(es). El historial quedó limpio.`
+      );
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo limpiar el historial");
+    } finally {
+      setPurgeBusy(false);
     }
   }
 
@@ -309,6 +346,50 @@ export function CanalesHubInner() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {!loading && (
+        <section className="rounded-2xl border border-red-200 bg-red-50/40 p-5">
+          <h2 className="text-sm font-bold text-red-900 uppercase tracking-wide">
+            Limpiar historial de conversaciones
+          </h2>
+          <p className="mt-1 text-sm text-red-900/80 max-w-2xl">
+            Elimina las conversaciones y sus mensajes para empezar con el historial en limpio. Se
+            conservan los contactos y la configuración de los canales. Esta acción no se puede
+            deshacer.
+          </p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+              Alcance
+              <select
+                value={purgeChannel}
+                onChange={(e) => setPurgeChannel(e.target.value)}
+                disabled={purgeBusy}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-800 min-w-[220px]"
+              >
+                <option value="all">Todos los canales</option>
+                {rows.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nombre ?? channelTypeLabel(r.type)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void handlePurge()}
+              disabled={purgeBusy}
+              className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
+            >
+              {purgeBusy ? "Limpiando…" : "Limpiar historial"}
+            </button>
+          </div>
+          {purgeMsg && (
+            <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {purgeMsg}
+            </p>
+          )}
         </section>
       )}
     </div>

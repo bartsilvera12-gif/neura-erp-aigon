@@ -1217,6 +1217,45 @@ export async function markConversationRead(conversationId: string): Promise<void
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Limpia el historial de conversaciones de la empresa: elimina las conversaciones
+ * y, en cascada, sus mensajes, sesiones/eventos de flujo, cierres, eventos de
+ * ruteo y validaciones de comprobante. MANTIENE los contactos (agenda) y la
+ * configuración de canales/tokens.
+ *
+ * - Sin `channelId`: limpia TODAS las conversaciones de la empresa.
+ * - Con `channelId`: limpia solo las de ese canal.
+ *
+ * Acción destructiva e irreversible. Devuelve cuántas conversaciones se eliminaron.
+ */
+export async function purgeChatConversations(
+  channelId?: string | null
+): Promise<{ deleted: number }> {
+  const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
+  const ch = channelId?.trim() || null;
+
+  const pool = getChatPostgresPool();
+  if (pool && isLikelyUnexposedTenantChatSchema(dataSchema)) {
+    const params: unknown[] = [empresa_id];
+    let where = "empresa_id = $1::uuid";
+    if (ch) {
+      params.push(ch);
+      where += " AND channel_id = $2::uuid";
+    }
+    const r = await pool.query(
+      `DELETE FROM ${quoteSchemaTable(dataSchema, "chat_conversations")} WHERE ${where}`,
+      params
+    );
+    return { deleted: r.rowCount ?? 0 };
+  }
+
+  let qb = supabase.from("chat_conversations").delete().eq("empresa_id", empresa_id);
+  if (ch) qb = qb.eq("channel_id", ch);
+  const { data, error } = await qb.select("id");
+  if (error) throw postgrestMutationError(dataSchema, error.message);
+  return { deleted: (data ?? []).length };
+}
+
 export type ChatChannelRow = {
   id: string;
   empresa_id: string;
